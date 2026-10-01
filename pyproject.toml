@@ -10,7 +10,8 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["ruff", "black", "pytest", "mypy"]
+anthropic = ["anthropic>=1.11,<2"]
+dev = ["ruff", "black", "pytest", "mypy", "anthropic>=1.11,<2"]
 
 [project.scripts]
 master-finhub = "master_finhub.cli:main"
