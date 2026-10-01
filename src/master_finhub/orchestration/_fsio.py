@@ -47,6 +47,8 @@ def _move_file_ex(src: str, dst: str, flags: int) -> int:
     """Windows MoveFileExW via stdlib ctypes. Returns 0 on success, else GetLastError()."""
 
     def call() -> int:
+        if sys.platform != "win32":  # also lets mypy skip the Windows-only ctypes API on Linux
+            raise OSError("MoveFileExW exists only on Windows")
         import ctypes
         from ctypes import wintypes
 
