@@ -27,14 +27,31 @@ BUSY_RETRIES: Final = 3
 BUSY_BACKOFF_SECONDS: Final = 0.05
 
 
+def _errno_of(exc: BaseException) -> int:
+    """errno via the base OSError slot only, and only a small plain int; else 0.
+
+    Runs no user code: a subclass property, ``__class__`` or ``__int__`` is never consulted.
+    """
+    if not issubclass(type(exc), OSError):
+        return 0
+    value = OSError.__dict__["errno"].__get__(exc, OSError)
+    return value if type(value) is int and 0 <= value < 2**31 else 0
+
+
 def attempt(
     fn: Callable[[], T], catch: tuple[type[BaseException], ...]
 ) -> tuple[T | None, Failure | None]:
-    """Run fn. On a caught error return (None, (class, errno)); the instance is dropped."""
+    """Run fn. On a caught error return (None, (class, errno)); the instance is dropped.
+
+    Total: nothing but the class (via ``type()``) and a plain-int errno is read from the
+    instance, so a hostile exception cannot raise, print or leak from here.
+    """
+    failure: Failure | None = None
     try:
         return fn(), None
     except catch as exc:
-        return None, (type(exc), getattr(exc, "errno", None) or 0)
+        failure = (type(exc), _errno_of(exc))
+    return None, failure
 
 
 @dataclass(frozen=True)
