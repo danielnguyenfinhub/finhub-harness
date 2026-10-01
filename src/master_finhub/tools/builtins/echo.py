@@ -16,6 +16,7 @@ class EchoTool:
             "properties": {"text": {"type": "string"}},
             "required": ["text"],
         },
+        idempotent=True,
     )
 
     def run(self, arguments: dict[str, Any]) -> str:
