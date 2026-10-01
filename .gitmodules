@@ -1,0 +1,24 @@
+[submodule "references/autogpt"]
+	shallow = true
+	path = references/autogpt
+	url = https://github.com/danielnguyenfinhub/AutoGPT.git
+[submodule "references/openhands"]
+	shallow = true
+	path = references/openhands
+	url = https://github.com/danielnguyenfinhub/OpenHands.git
+[submodule "references/dify"]
+	shallow = true
+	path = references/dify
+	url = https://github.com/danielnguyenfinhub/dify.git
+[submodule "references/crewai"]
+	shallow = true
+	path = references/crewai
+	url = https://github.com/danielnguyenfinhub/crewAI.git
+[submodule "references/deepseek_harness"]
+	shallow = true
+	path = references/deepseek_harness
+	url = https://github.com/danielnguyenfinhub/deepseek-harness.git
+[submodule "references/revfactory_harness"]
+	shallow = true
+	path = references/revfactory_harness
+	url = https://github.com/danielnguyenfinhub/harness.git
