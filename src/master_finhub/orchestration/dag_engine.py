@@ -518,6 +518,27 @@ class CheckpointStore:
                 failed[0], (FileNotFoundError, NotADirectoryError)
             )
             raise (self._not_found(rid) if missing else _bad_listing(rid)) from None
+        graph_files = [n for n in names if n.startswith("graph-")]
+        if graph_files:  # a graph run, or a folder holding both series: never resumed as agent
+            mixed = any(n.startswith("step-") for n in names)
+            raise CheckpointError(
+                (
+                    f'Run "{rid}" holds both agent and graph checkpoints.'
+                    if mixed
+                    else f'Run "{rid}" is a graph run, not an agent run.'
+                ),
+                (
+                    "Agent and graph checkpoints must not share a run folder."
+                    if mixed
+                    else "It was saved by the graph executor."
+                ),
+                (
+                    "Move the stray files out of the run folder."
+                    if mixed
+                    else "Resume it with resume_graph, or start a new run."
+                ),
+                run_id=rid,
+            ) from None
         seqs: list[int] = []
         for name in names:
             match = STEP_FILE_PATTERN.fullmatch(name)
