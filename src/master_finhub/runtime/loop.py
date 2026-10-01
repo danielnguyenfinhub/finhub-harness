@@ -61,9 +61,23 @@ class Tool(Protocol):
         ...
 
 
+class ContextPolicy(Protocol):
+    def fit(self, messages: list[Message]) -> list[Message]:
+        """Return a NEW list that fits the budget; never mutate the input."""
+        ...
+
+
 class AgentLoop:
-    def __init__(self, llm: LLM, tools: list[Tool], max_steps: int = DEFAULT_MAX_STEPS) -> None:
+    def __init__(
+        self,
+        llm: LLM,
+        tools: list[Tool],
+        max_steps: int = DEFAULT_MAX_STEPS,
+        *,
+        context: ContextPolicy | None = None,
+    ) -> None:
         self._llm = llm
+        self._context = context
         self._tools = {t.spec.name: t for t in tools}
         self._specs = [t.spec for t in tools]
         self._max_steps = max_steps
@@ -71,6 +85,8 @@ class AgentLoop:
     def run(self, prompt: str) -> str:
         messages = [Message(role="user", content=prompt)]
         for _ in range(self._max_steps):
+            if self._context is not None:
+                messages = self._context.fit(messages)
             reply = self._llm.complete(list(messages), self._specs)
             messages.append(Message("assistant", reply.content, tool_calls=tuple(reply.tool_calls)))
             if not reply.tool_calls:
