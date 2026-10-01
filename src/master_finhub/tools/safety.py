@@ -554,7 +554,7 @@ def _guard(call: ToolCall, policy: CommandPolicy) -> str | None:
                 for key, val in node.items():
                     if str(key).casefold() in COMMAND_ARG_KEYS:
                         denial = _check_value(val, policy)
-                        if denial:
+                        if denial is not None:
                             return denial
                     else:
                         stack.append((val, depth + 1))
