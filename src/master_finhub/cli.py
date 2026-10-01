@@ -9,6 +9,7 @@ from master_finhub.runtime.context import ContextManager
 from master_finhub.runtime.fake_llm import ECHO_PREFIX, ScriptedLLM
 from master_finhub.runtime.loop import AgentLoop, AgentLoopError
 from master_finhub.tools.builtins.echo import EchoTool
+from master_finhub.tools.safety import guard_tool_call
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -22,7 +23,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
     try:
-        print(AgentLoop(ScriptedLLM(), [EchoTool()], context=ContextManager()).run(args.prompt))
+        loop = AgentLoop(
+            ScriptedLLM(), [EchoTool()], context=ContextManager(), guard=guard_tool_call
+        )
+        print(loop.run(args.prompt))
     except AgentLoopError as exc:
         print(f"Agent failed: {exc}", file=sys.stderr)
         return 1

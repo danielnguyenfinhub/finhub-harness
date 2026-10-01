@@ -9,6 +9,7 @@ loop. Streaming, sessions, hooks and abort handling are intentionally out of sco
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -67,6 +68,10 @@ class ContextPolicy(Protocol):
         ...
 
 
+# Tool-call veto: None allows the call; a string is the denial text shown to the model.
+ToolGuard = Callable[[ToolCall], str | None]
+
+
 class AgentLoop:
     def __init__(
         self,
@@ -75,8 +80,10 @@ class AgentLoop:
         max_steps: int = DEFAULT_MAX_STEPS,
         *,
         context: ContextPolicy | None = None,
+        guard: ToolGuard | None = None,
     ) -> None:
         self._llm = llm
+        self._guard = guard
         self._context = context
         self._tools = {t.spec.name: t for t in tools}
         self._specs = [t.spec for t in tools]
@@ -103,6 +110,10 @@ class AgentLoop:
         if tool is None:
             known = ", ".join(sorted(self._tools)) or "none"
             return f"Error: Unknown tool '{call.name}'. Available tools: {known}."
+        if self._guard is not None:
+            denial = self._guard(call)
+            if denial is not None:
+                return f"Error: {denial}"
         try:
             return tool.run(call.arguments)
         except Exception as exc:  # noqa: BLE001 - tool faults go back to the model
