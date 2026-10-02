@@ -1,0 +1,15 @@
+{
+  "name": "finhub-harness-marketplace",
+  "owner": {
+    "name": "danielnguyenfinhub",
+    "url": "https://github.com/danielnguyenfinhub"
+  },
+  "plugins": [
+    {
+      "name": "finhub-harness",
+      "source": "./",
+      "description": "FinHub harness factory v0.1: build, extend, audit and evolve agent teams and their skills for Claude Code, Claude chat and Claude Cowork. Adds an adversarially audited Authority List and mutation-tested QA to the revfactory/harness v2 method.",
+      "version": "0.1.0"
+    }
+  ]
+}
