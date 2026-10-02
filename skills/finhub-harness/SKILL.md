@@ -12,8 +12,8 @@ Design a harness that fits the project. Define each agent's role, write the skil
 ## Core principles
 
 1. Agent definitions live in `project/.claude/agents/`, skills in `project/.claude/skills/`. An agent definition says **who** works; a skill says **how** the work is done. Keep them apart.
-2. Choose the execution mode from the shape of the work. If the item list, the verification rule and the repeat condition can be written as code, orchestrate with a Workflow. If the same expert must trade feedback across turns, use persistent named agents. If you only need a result once, delegate to a sub-agent. Step 2 gives the decision tree.
-3. Choose the model per agent from the task's complexity, duration, autonomy and latency need: fable for long-horizon autonomous planning, opus for bounded deep reasoning (design, code generation, cross-checking), sonnet for routine work. Step 3 gives the criteria. Never set every agent to the top model because "it matters".
+2. Choose the execution mode from the shape of the work. If the item list, the verification rule and the repeat condition can be written as code, orchestrate with a Workflow. If the same expert must trade feedback across turns, use persistent named agents. If you only need a result once, delegate to a sub-agent. Step 2-1 gives the rule; the full decision tree is `references/execution-modes.md` §4.
+3. Choose the model per agent from the task's complexity, duration, autonomy and latency need: fable for long-horizon autonomous planning, opus for bounded deep reasoning (design, code generation, cross-checking), sonnet for routine work. The criteria are in `references/model-selection-guide.md`. Never set every agent to the top model because "it matters".
 4. Record only the trigger conditions and a change history in `CLAUDE.md`, so a new session can find the orchestrator. Everything else lives in the orchestrator and the agent/skill files.
 5. Feed what each run teaches back into the agents, skills and `CLAUDE.md`. The retrospective is `finhub-harness-evolve`'s job.
 6. Write every generated artefact in the language the user writes in. Do not copy this skill's language or the templates' example wording; translate headings and examples. If the user extends an existing harness, follow the language of the existing files.
@@ -65,9 +65,9 @@ Then:
 | --- | --- | --- |
 | **A. Workflow orchestration** | `Workflow` script: `agent()`, `pipeline()`, `parallel()`, `phase()`, `schema` | item list, verification rule and repeat count expressible as code; schema-validated results; dozens of agent calls |
 | **B. Persistent agent collaboration** | `Agent(name:)`, `SendMessage`, `TaskCreate`/`TaskUpdate` | named experts that keep context across feedback, negotiation and joint editing |
-| **C. Sub-agent delegation** | one `Agent` call per task, background by default, parallel in one message | no agent-to-agent talk needed; a result once |
+| **C. Sub-agent delegation** | one `Agent` call per task, background by default; independent calls parallel in one message, dependent calls one after another with the prior artefact path in the prompt | no agent-to-agent talk needed; a result once |
 
-Decide in this order: (1) if the list, rule and loop can be coded, use A — code-defined control flow is reproducible; (2) else if agents must converse or remember, use B; (3) else C; (4) mix modes per phase and write `**Execution mode:**` above each phase.
+Decide in this order: (1) if the list, rule and loop can be coded, use A — code-defined control flow is reproducible; (2) else if agents must converse or remember, use B; (3) else C — a short pipeline of one-shot agents is still Mode C, run sequentially; (4) mix modes per phase and write `**Execution mode:**` above each phase. Write only the mode(s) you chose; an orchestrator is not required to carry all three.
 
 `Workflow` needs the user's explicit opt-in. Invoking an orchestrator skill that declares a Workflow counts as opt-in. Keep the default agent count small; scale up only on "thorough", "exhaustive" or a stated token budget (`+500k`).
 
@@ -88,7 +88,7 @@ Split on expertise, parallelism, context load and reuse (`references/team-patter
 Reusable experts are custom types in `project/.claude/agents/{name}.md`, invoked with `subagent_type: "{name}"` (Agent) or `agentType: "{name}"` (Workflow). One-off tasks that fit `general-purpose`, `Explore` or `Plan` get no file.
 
 - Frontmatter: `name` and `description` required; `tools` to restrict (drop Edit and Write for read-only reviewers; give Edit *and* Write to anything that fixes artefacts); `model` with the reason as a comment.
-- Body: role, working principles with their reasons, input/output rules, error handling, collaboration. Persistent agents get `## Communication rules`; Workflow-only agents get `## Structured output` instead.
+- Body: role, working principles with their reasons, input/output rules, error handling, collaboration. Persistent agents (Mode B) add `## Communication rules`; Workflow-only agents (Mode A) add `## Structured output`; one-shot agents (Mode C) need neither — their `## Input and output rules` name the artefact paths they read and write. Skills are wired in the body ("call `/skill-name` with the Skill tool"); there is no `skills:` frontmatter field.
 - QA agents get a type with all tools (`Explore` cannot run scripts), compare shapes across boundaries rather than check existence, and run after every module, not once at the end (`references/qa-agent-guide.md`). Add the mutation spot-check from `references/quality-gates.md` §3 whenever the QA agent judges tests.
 - Model per agent from `references/model-selection-guide.md`: fable only for the layer that plans and runs long; opus for design, generation, judging; sonnet by default.
 
@@ -98,7 +98,7 @@ Each agent's method goes in `project/.claude/skills/{name}/SKILL.md` (`reference
 
 1. Check `.claude/skills/` for an existing skill that covers it; link or extend rather than duplicate (§9).
 2. Layout: `SKILL.md` (required, under 500 lines) + optional `scripts/`, `references/`, `assets/`.
-3. `description` states what the skill does and the concrete situations that must trigger it, including follow-up phrasings ("re-run", "update", "redo only the X part"). Name near-miss cases it must not take.
+3. `description` states what the skill does and the concrete situations that must trigger it. Follow-up phrasings ("re-run", "update", "redo only the X part") are required on the orchestrator and on any skill users will invoke directly; a leaf skill only ever called by an agent needs none. Name near-miss cases it must not take.
 4. Body: explain the reason behind each rule, generalise to principles, imperative register, move detail to `references/` and say when to read each file.
 5. Wire skills to agents: Skill-tool call for shared workflows, inline for short agent-private procedures, `Read` of a reference file for long conditional material.
 
@@ -111,9 +111,9 @@ Every orchestrator contains:
 - **Execution mode and target surface** at the top (per phase if mixed). If chat or Cowork is a target, a `## Single-context fallback` section (`references/surfaces.md`).
 - **Step 0 context check**: no `_workspace/` → fresh run; `_workspace/` + partial request → re-run only that agent/phase (pass prior output paths); `_workspace/` + new input → move it to `_workspace_{timestamp}/` and start fresh; Workflow mode → `resumeFromRunId` when `run_meta.json` has one.
 - **Data hand-off**: structured return (`schema`) in A; return message in C; `SendMessage` and shared tasks in B; files for anything large or auditable, as `_workspace/{phase}_{agent}_{artifact}.{ext}`. Freeze artefacts at phase boundaries in B (template B Step 4).
-- **Error policy**: one retry then proceed and record the gap; never retry quota, auth or permission failures — open the partial artefacts, record what is missing, report; the orchestrator fills a gap only with facts it verified itself, never with a guessed judgement; `.filter(Boolean)` after every `parallel()`/`pipeline()` and `log()` the dropped count.
+- **Error policy**: one retry then proceed and record the gap; never retry quota, auth or permission failures — open the partial artefacts, record what is missing, report; the orchestrator fills a gap only with facts it verified itself, never with a guessed judgement; in Mode A, `.filter(Boolean)` after every `parallel()`/`pipeline()` and `log()` the dropped count.
 - **Scale**: 2-3 persistent agents for small jobs, 3-5 for medium, supervisor + 3-5 for large; Workflow calls from a handful to hundreds, capped by `budget.remaining()` when a budget is set.
-- **Quality gates** when the harness builds software or produces audited decisions: Authority List → fresh-context judge (max 3 rounds, then escalate with both positions) → build one slice → boundary QA with `RESULT: PASS|FAIL` first line, the repo's real gates re-run, mutation spot-checks on a scratch copy, one builder retry → final report whose first line is Done / partly done / blocked (`references/quality-gates.md`).
+- **Quality gates** when the harness builds software or produces audited decisions — outputs a third party will rely on (a lender, a client, a regulator, an auditor): credit or compliance assessments, client-facing advice, legal or financial figures. A gap email that only lists missing documents is not one; a servicing verdict is. Then: Authority List → fresh-context judge (max 3 rounds, then escalate with both positions) → build one slice → boundary QA with `RESULT: PASS|FAIL` first line, the repo's real gates re-run, mutation spot-checks on a scratch copy, one builder retry → final report whose first line is Done / partly done / blocked (`references/quality-gates.md`).
 - **`CLAUDE.md` pointer**: record only the block below. Agent lists, directory trees and run rules stay out of it.
 
 ````markdown
@@ -129,13 +129,15 @@ Every orchestrator contains:
 | {YYYY-MM-DD} | Initial build with finhub-harness | all | - |
 ````
 
+On an initial build the Reason column stays `-`; later rows carry the feedback or defect that caused the change.
+
 - **Follow-up triggers** in the orchestrator `description`: "re-run", "update", "fix", "redo only {part}", "improve the previous result", plus the domain's everyday verbs.
 
 ### Step 6: Verify and test
 
 Follow `references/skill-testing-guide.md`.
 
-1. **Files and references**: every agent file in place; every `SKILL.md` has `name` and `description`; cross-referenced names match; nothing was written to `.claude/commands/`; no v1 artefacts (`TeamCreate`, `TeamDelete`, `team_name`, experimental flags); every Authority List citation opens to a line that supports the claim.
+1. **Files and references**: every agent file in place; every `SKILL.md` has `name` and `description`; cross-referenced names match; nothing was written to `.claude/commands/`; no v1 artefacts (`TeamCreate`, `TeamDelete`, `team_name`, experimental flags); where an Authority List exists, every citation opens to a line that supports the claim.
 2. **Per mode**: A — `meta` is a pure literal, no `Date.now()`/`Math.random()`, `parallel()` only where a barrier is needed, `.filter(Boolean)` present, `phase()` titles match `meta.phases`; B — message routes, task dependencies, agent count; C — inputs chain to outputs, parallel calls batched in one message; mixed — mode written per phase and hand-offs unbroken. Chat/Cowork targets — the single-context fallback covers every phase.
 3. **Skill runs**: 2-3 realistic prompts per skill, with-skill vs baseline in parallel, qualitative plus assertion-based grading; fix by principle, not per example; repeat until gains flatten; move repeated helper code into `scripts/`.
 4. **Trigger check**: 10 should-trigger prompts in varied register and 10 near-miss should-not-trigger prompts; check for collisions with existing skills' descriptions.

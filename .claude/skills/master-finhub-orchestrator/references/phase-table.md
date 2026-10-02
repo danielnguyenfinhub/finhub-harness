@@ -38,5 +38,5 @@ Use this when Phase 0 picks a partial re-run: find the agent, pass the "Prior ou
 | 8 | `sandbox/docker_engine.py`, `stream.py` | skip without docker; else echo in container |
 | 9 | `tools/mcp/client.py` | stub stdio server round-trip |
 | 10 | `server/app.py`, `sse.py` | client receives PING then event |
-| 11 | `evals/runner.py`, `verifiers/` | one benchmark pass/fail |
+| 11 | `src/master_finhub/evals/runner.py`, `evals/verifiers.py` | one benchmark pass/fail |
 | 12 | `factory/*` | deferred (YAGNI) |
