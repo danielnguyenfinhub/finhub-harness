@@ -1,0 +1,13 @@
+{
+  "name": "echo_pass",
+  "task": "echo 42",
+  "max_steps": 4,
+  "cutoff_s": 30,
+  "ground": {
+    "files": [],
+    "should_contain": ["42"],
+    "should_not_contain": ["Error:"],
+    "case_sensitive": true,
+    "eval": {"type": "contains"}
+  }
+}
