@@ -1,0 +1,7 @@
+finhub-harness
+Copyright 2026 Daniel Nguyen / FinHub
+
+This product includes an English port of revfactory/harness v2.1.0
+(https://github.com/revfactory/harness), licensed under the Apache License 2.0,
+Copyright revfactory. Changes: translation to English, surface adaptation,
+Authority List and adversarial audit, mutation-tested QA, source enrichment.

@@ -1,0 +1,192 @@
+---
+name: finhub-harness
+description: "Designs a harness for a project or domain: defines the specialist agents, creates the skills each agent uses, and writes a surface-aware orchestrator for Claude Code, Claude chat or Claude Cowork. Use when the user asks to 'build a harness', 'set up a harness', 'design a harness', 'harness engineering', 'create an agent team', 'build an agent team for X', 'make a finhub harness', or to rework, extend, migrate or enrich an existing harness ('add an agent', 'upgrade the harness to v2', 'borrow the judge-panel pattern from repo Y'). Also use to operate an existing harness: 'audit the harness', 'check harness status', 'sync agents and skills'. Do NOT use for running a harness that already exists (call its orchestrator skill) or for folding run feedback back in (use finhub-harness-evolve)."
+---
+
+# FinHub Harness — agent teams, their skills and a surface-aware orchestrator
+
+> Ported from revfactory/harness v2.1.0 (Apache-2.0), translated to English and extended for FinHub. Original: https://github.com/revfactory/harness. FinHub additions: surface adaptation (Code / chat / Cowork), the Authority List with a fresh-context adversarial audit, mutation-tested boundary QA, and licence-tiered enrichment from other harness repos.
+
+Design a harness that fits the project. Define each agent's role, write the skill each agent follows when it works, and write one orchestrator that says who collaborates, in what order, on which surface.
+
+## Core principles
+
+1. Agent definitions live in `project/.claude/agents/`, skills in `project/.claude/skills/`. An agent definition says **who** works; a skill says **how** the work is done. Keep them apart.
+2. Choose the execution mode from the shape of the work. If the item list, the verification rule and the repeat condition can be written as code, orchestrate with a Workflow. If the same expert must trade feedback across turns, use persistent named agents. If you only need a result once, delegate to a sub-agent. Step 2 gives the decision tree.
+3. Choose the model per agent from the task's complexity, duration, autonomy and latency need: fable for long-horizon autonomous planning, opus for bounded deep reasoning (design, code generation, cross-checking), sonnet for routine work. Step 3 gives the criteria. Never set every agent to the top model because "it matters".
+4. Record only the trigger conditions and a change history in `CLAUDE.md`, so a new session can find the orchestrator. Everything else lives in the orchestrator and the agent/skill files.
+5. Feed what each run teaches back into the agents, skills and `CLAUDE.md`. The retrospective is `finhub-harness-evolve`'s job.
+6. Write every generated artefact in the language the user writes in. Do not copy this skill's language or the templates' example wording; translate headings and examples. If the user extends an existing harness, follow the language of the existing files.
+7. **Declare the target surface.** Every orchestrator says whether it runs on Claude Code, Claude chat, Claude Cowork or several. Modes A/B/C exist only in Claude Code; chat and Cowork need a single-context fallback. `references/surfaces.md` says exactly how each primitive degrades.
+8. **Borrowed patterns carry a citation.** A design decision taken from a reference repo enters the harness through an Authority List row (`claim → references/<repo>/<path>:<line>`, licence tier noted). A decision with no source is labelled NET-NEW with a reason and a named test, never a fake citation. `references/quality-gates.md` has the schema; `references/source-enrichment.md` says what may be borrowed from where.
+
+## Procedure
+
+### Step 0: Check the current state
+
+Read `project/.claude/agents/`, `project/.claude/skills/`, `project/CLAUDE.md` and, if present, `project/.claude-plugin/plugin.json`. Then pick exactly one path:
+
+- **New build**: no agents or skills, or empty directories → run Steps 1-6 in full.
+- **Extend an existing harness**: add an agent, a skill, or change the structure → run only the steps in the table below.
+- **Operate / maintain**: audit, repair or sync → go to Step 7.
+
+| Change | Step 1 | Step 2 | Step 3 | Step 4 | Step 5 | Step 6 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Add an agent | skip, reuse Step 0 findings | decide only which mode, team and phase it joins | required | only if it needs a dedicated skill | edit the orchestrator | required |
+| Add or change a skill | skip | skip | skip | required | only if wiring changes | required |
+| Change structure or execution mode | skip | required | affected agents only | affected skills only | required | required |
+
+Then:
+
+1. **Detect v1 artefacts.** If an orchestrator or agent mentions `TeamCreate`, `TeamDelete`, `team_name`, `SendMessage({to: "all"})` or `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, it was built for v1 and will silently degrade to a single agent on the current runtime. Propose the v2 migration in `references/execution-modes.md` §5 before anything else.
+2. **Detect the surface mismatch.** If the orchestrator assumes `Agent`/`Workflow` tools but the user wants to run it in Claude chat or Cowork, add the single-context fallback (`references/surfaces.md`) before extending it.
+3. Compare the real agent and skill list with the `CLAUDE.md` change history and list every mismatch.
+4. Report the findings and the plan to the user and get confirmation.
+
+### Step 1: Analyse the domain and the work
+
+1. Extract the domain and the goal from the request.
+2. Split the work by kind: generate, verify, edit, analyse.
+3. Characterise the flow so Step 2 can pick a mode:
+   - Can the item list be enumerated up front (N files, M viewpoints)?
+   - Is there a verify-then-fix loop?
+   - Does the result improve when agents argue with each other?
+   - Must the same expert stay in conversation within one session?
+4. Find overlaps or conflicts with the agents and skills found in Step 0.
+5. Skim the codebase: stack, data model, main modules, existing tests and gates (`pytest`, `ruff`, `mypy` or their equivalents) — the orchestrator's QA must run the real gates, not invent new ones.
+6. Match the explanation level to the user. Do not use "assertion" or "JSON Schema" without a gloss for a non-coder.
+7. **Which surface(s)?** Ask if it is not obvious. A harness for a mortgage-broking operator who works in Cowork with CRM connectors is a different artefact from one for a developer in Claude Code, even for the same domain.
+
+### Step 2: Choose the execution mode and the team pattern
+
+#### 2-1. Execution mode (Claude Code)
+
+| Mode | Primitives | Fits |
+| --- | --- | --- |
+| **A. Workflow orchestration** | `Workflow` script: `agent()`, `pipeline()`, `parallel()`, `phase()`, `schema` | item list, verification rule and repeat count expressible as code; schema-validated results; dozens of agent calls |
+| **B. Persistent agent collaboration** | `Agent(name:)`, `SendMessage`, `TaskCreate`/`TaskUpdate` | named experts that keep context across feedback, negotiation and joint editing |
+| **C. Sub-agent delegation** | one `Agent` call per task, background by default, parallel in one message | no agent-to-agent talk needed; a result once |
+
+Decide in this order: (1) if the list, rule and loop can be coded, use A — code-defined control flow is reproducible; (2) else if agents must converse or remember, use B; (3) else C; (4) mix modes per phase and write `**Execution mode:**` above each phase.
+
+`Workflow` needs the user's explicit opt-in. Invoking an orchestrator skill that declares a Workflow counts as opt-in. Keep the default agent count small; scale up only on "thorough", "exhaustive" or a stated token budget (`+500k`).
+
+> Details, concurrency caps, schemas, budgets and resume: `references/execution-modes.md`. Chat and Cowork fallbacks: `references/surfaces.md`.
+
+#### 2-2. Team pattern
+
+Split the work by expertise, then pick from `references/team-patterns.md`: **pipeline**, **fan-out/fan-in**, **expert pool**, **producer-reviewer**, **supervisor**, **hierarchical delegation** (two levels at most; one level of Workflow nesting).
+
+When correctness matters, add verification patterns: **adversarial verification** (N adversarial checkers per finding; only majority-`confirmed` passes; `refuted`/`uncertain` never count as passes), **judge panel**, **loop-until-dry**, **multi-axis search**, **omission reviewer**. For harnesses that *design before they build*, add the FinHub pattern: an **Authority List** audited by a **fresh-context judge** (`references/quality-gates.md` §1-2), which is adversarial verification applied to the design itself.
+
+#### 2-3. Splitting agents
+
+Split on expertise, parallelism, context load and reuse (`references/team-patterns.md` §6). Before creating any agent, check `.claude/agents/` for one that already covers the role and extend it instead (§7).
+
+### Step 3: Write the agent definitions
+
+Reusable experts are custom types in `project/.claude/agents/{name}.md`, invoked with `subagent_type: "{name}"` (Agent) or `agentType: "{name}"` (Workflow). One-off tasks that fit `general-purpose`, `Explore` or `Plan` get no file.
+
+- Frontmatter: `name` and `description` required; `tools` to restrict (drop Edit and Write for read-only reviewers; give Edit *and* Write to anything that fixes artefacts); `model` with the reason as a comment.
+- Body: role, working principles with their reasons, input/output rules, error handling, collaboration. Persistent agents get `## Communication rules`; Workflow-only agents get `## Structured output` instead.
+- QA agents get a type with all tools (`Explore` cannot run scripts), compare shapes across boundaries rather than check existence, and run after every module, not once at the end (`references/qa-agent-guide.md`). Add the mutation spot-check from `references/quality-gates.md` §3 whenever the QA agent judges tests.
+- Model per agent from `references/model-selection-guide.md`: fable only for the layer that plans and runs long; opus for design, generation, judging; sonnet by default.
+
+### Step 4: Write the skills
+
+Each agent's method goes in `project/.claude/skills/{name}/SKILL.md` (`references/skill-writing-guide.md`).
+
+1. Check `.claude/skills/` for an existing skill that covers it; link or extend rather than duplicate (§9).
+2. Layout: `SKILL.md` (required, under 500 lines) + optional `scripts/`, `references/`, `assets/`.
+3. `description` states what the skill does and the concrete situations that must trigger it, including follow-up phrasings ("re-run", "update", "redo only the X part"). Name near-miss cases it must not take.
+4. Body: explain the reason behind each rule, generalise to principles, imperative register, move detail to `references/` and say when to read each file.
+5. Wire skills to agents: Skill-tool call for shared workflows, inline for short agent-private procedures, `Read` of a reference file for long conditional material.
+
+### Step 5: Integrate and order the run
+
+The orchestrator is itself a skill. Use the matching template in `references/orchestrator-template.md` (A, B, C or mixed) and the scripts in `references/workflow-recipes.md`. When extending, edit the existing orchestrator; never create a second one for the same domain.
+
+Every orchestrator contains:
+
+- **Execution mode and target surface** at the top (per phase if mixed). If chat or Cowork is a target, a `## Single-context fallback` section (`references/surfaces.md`).
+- **Step 0 context check**: no `_workspace/` → fresh run; `_workspace/` + partial request → re-run only that agent/phase (pass prior output paths); `_workspace/` + new input → move it to `_workspace_{timestamp}/` and start fresh; Workflow mode → `resumeFromRunId` when `run_meta.json` has one.
+- **Data hand-off**: structured return (`schema`) in A; return message in C; `SendMessage` and shared tasks in B; files for anything large or auditable, as `_workspace/{phase}_{agent}_{artifact}.{ext}`. Freeze artefacts at phase boundaries in B (template B Step 4).
+- **Error policy**: one retry then proceed and record the gap; never retry quota, auth or permission failures — open the partial artefacts, record what is missing, report; the orchestrator fills a gap only with facts it verified itself, never with a guessed judgement; `.filter(Boolean)` after every `parallel()`/`pipeline()` and `log()` the dropped count.
+- **Scale**: 2-3 persistent agents for small jobs, 3-5 for medium, supervisor + 3-5 for large; Workflow calls from a handful to hundreds, capped by `budget.remaining()` when a budget is set.
+- **Quality gates** when the harness builds software or produces audited decisions: Authority List → fresh-context judge (max 3 rounds, then escalate with both positions) → build one slice → boundary QA with `RESULT: PASS|FAIL` first line, the repo's real gates re-run, mutation spot-checks on a scratch copy, one builder retry → final report whose first line is Done / partly done / blocked (`references/quality-gates.md`).
+- **`CLAUDE.md` pointer**: record only the block below. Agent lists, directory trees and run rules stay out of it.
+
+````markdown
+## Harness: {domain}
+
+**Goal:** {one line}
+
+**Trigger:** For {domain} work, use the `{orchestrator-skill-name}` skill. Simple questions may be answered directly.
+
+**Change history:**
+| Date | Change | Target | Reason |
+| --- | --- | --- | --- |
+| {YYYY-MM-DD} | Initial build with finhub-harness | all | - |
+````
+
+- **Follow-up triggers** in the orchestrator `description`: "re-run", "update", "fix", "redo only {part}", "improve the previous result", plus the domain's everyday verbs.
+
+### Step 6: Verify and test
+
+Follow `references/skill-testing-guide.md`.
+
+1. **Files and references**: every agent file in place; every `SKILL.md` has `name` and `description`; cross-referenced names match; nothing was written to `.claude/commands/`; no v1 artefacts (`TeamCreate`, `TeamDelete`, `team_name`, experimental flags); every Authority List citation opens to a line that supports the claim.
+2. **Per mode**: A — `meta` is a pure literal, no `Date.now()`/`Math.random()`, `parallel()` only where a barrier is needed, `.filter(Boolean)` present, `phase()` titles match `meta.phases`; B — message routes, task dependencies, agent count; C — inputs chain to outputs, parallel calls batched in one message; mixed — mode written per phase and hand-offs unbroken. Chat/Cowork targets — the single-context fallback covers every phase.
+3. **Skill runs**: 2-3 realistic prompts per skill, with-skill vs baseline in parallel, qualitative plus assertion-based grading; fix by principle, not per example; repeat until gains flatten; move repeated helper code into `scripts/`.
+4. **Trigger check**: 10 should-trigger prompts in varied register and 10 near-miss should-not-trigger prompts; check for collisions with existing skills' descriptions.
+5. **Dry run**: phase order, hand-off paths, input/output fit, error branches executable.
+6. **Record** one happy-path and at least one error-path scenario under `## Test scenarios` in the orchestrator.
+
+### Step 7: Operate, maintain and improve
+
+A harness is not a one-off artefact. Retrospectives and feedback belong to `finhub-harness-evolve` ("harness retrospective", "evolve the harness", "fold this feedback in"). This skill handles operation:
+
+1. **Status check**: diff `.claude/agents/`, `.claude/skills/` and the orchestrator; list mismatches and report.
+2. **Incremental change**: one item at a time, verify immediately.
+3. **Change history**: date, change, target, reason in `CLAUDE.md`.
+4. **Verify the change**: structure always; trigger test if a description changed; run test and dry run if the change is large; final `CLAUDE.md`-vs-files check.
+
+Suggest `finhub-harness-evolve` when the same feedback recurs, an agent fails twice for the same cause, a QA report or judge verdict rejects for the same reason twice, or the user keeps doing the orchestrator's job by hand.
+
+### Enriching from other harness repos
+
+When the user wants a pattern from another harness (`"borrow the judge panel from repo Y"`, `"adopt how Z sandboxes code"`), do not copy. Pin the repo as a reference submodule, run the port-map procedure, then adopt the pattern through an Authority List row with its licence tier. `references/source-enrichment.md` has the procedure, the pinned repos and their tiers.
+
+## Deliverable checklist
+
+- [ ] Every reusable custom type has a file in `project/.claude/agents/`; one-offs on built-in types have none.
+- [ ] Every needed `SKILL.md` and reference exists under `project/.claude/skills/`.
+- [ ] One orchestrator skill with data hand-off, error policy, test scenarios and a declared target surface; a single-context fallback if chat or Cowork is a target.
+- [ ] Execution mode written (per phase if mixed); no v1 artefacts.
+- [ ] `model:` chosen per agent from the task, with the reason as a comment; no blanket top-model setting.
+- [ ] Workflow scripts: `.filter(Boolean)` present, `meta` literal, `parallel()` only for real barriers.
+- [ ] Nothing written to `.claude/commands/`.
+- [ ] Existing agents and skills checked for overlap before creating new ones; no name or role collision.
+- [ ] Artefacts written in the user's language (or the existing harness's language).
+- [ ] Every skill `description` names its trigger situations and follow-up phrasings.
+- [ ] Every `SKILL.md` under 500 lines; detail moved to `references/`.
+- [ ] Run with 2-3 realistic prompts; triggers validated with should and should-not cases.
+- [ ] `CLAUDE.md` holds only the trigger pointer and change history.
+- [ ] Orchestrator Step 0 distinguishes first run, follow-up and partial re-run (and `resumeFromRunId` for Workflow mode).
+- [ ] Borrowed patterns cited in an Authority List with licence tier; net-new decisions labelled with reason and test.
+- [ ] If the harness builds software: QA runs the repo's real gates after every slice and reports `RESULT:` first.
+
+## References
+
+- Execution modes and v1→v2 migration: `references/execution-modes.md`
+- Surfaces (Code / chat / Cowork) and the single-context fallback: `references/surfaces.md`
+- Model selection: `references/model-selection-guide.md`
+- Team patterns and agent definitions: `references/team-patterns.md`
+- Worked team examples: `references/team-examples.md`
+- Workflow scripts and pitfalls: `references/workflow-recipes.md`
+- Orchestrator templates: `references/orchestrator-template.md`
+- Skill writing: `references/skill-writing-guide.md`
+- Skill testing: `references/skill-testing-guide.md`
+- QA agents: `references/qa-agent-guide.md`
+- Authority List, adversarial audit, mutation-tested QA, honest reporting: `references/quality-gates.md`
+- Borrowing from other harness repos under licence rules: `references/source-enrichment.md`

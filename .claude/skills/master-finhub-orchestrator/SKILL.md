@@ -5,7 +5,7 @@ description: "Master FinHub harness orchestrator (하이브리드). Runs the fiv
 
 # Master FinHub Orchestrator
 
-Coordinates reference-miner, strategy-architect, adversarial-risk-judge, runtime-builder and boundary-qa. Why hybrid: mining and building are independent and verifiable by commands (sub-agents are cheaper and isolated), while design-vs-audit needs a real back-and-forth (a team with SendMessage).
+Coordinates reference-miner, strategy-architect, adversarial-risk-judge, runtime-builder and boundary-qa. Why hybrid: mining and building are independent and verifiable by commands (sub-agents are cheaper and isolated), while design-vs-audit needs a real back-and-forth (a named architect resumed with SendMessage, audited by a fresh judge each round).
 
 ## 실행 모드: 하이브리드
 
@@ -24,8 +24,8 @@ Full per-phase inputs/outputs: `references/phase-table.md`. Workspace file namin
 | 팀원 | 에이전트 타입 | 역할 | 스킬 | 출력 |
 |------|-------------|------|------|------|
 | reference-miner ×6 | Explore (sonnet) | Port map for one submodule | reference-mining | `_workspace/01_reference-miner_{submodule}_portmap.md` |
-| strategy-architect | general-purpose (opus) | Slice design + Authority List | runtime-slice-design | `_workspace/02_strategy-architect_slices.md` |
-| adversarial-risk-judge | general-purpose (opus) | Fresh-context audit of Authority List | adversarial-audit | `_workspace/02_adversarial-risk-judge_verdict.md` |
+| strategy-architect | strategy-architect (opus) | Slice design + Authority List | runtime-slice-design | `_workspace/02_strategy-architect_slices.md` |
+| adversarial-risk-judge | adversarial-risk-judge (opus) | Fresh-context audit of Authority List | adversarial-audit | `_workspace/02_adversarial-risk-judge_verdict.md` |
 | runtime-builder | general-purpose (sonnet) | Build one slice test-first | runtime-slice-design (+ finhub-build-discipline, superpowers:test-driven-development) | `src/`, `tests/`, `_workspace/03_runtime-builder_slice{N}.md` |
 | boundary-qa | general-purpose (sonnet) | Cross-boundary QA + final report | boundary-qa | `_workspace/03_boundary-qa_slice{N}.md`, `_workspace/04_boundary-qa_report.md` |
 
@@ -64,13 +64,15 @@ Agent(
 Explore agents are read-only, so when each completes, write its returned port map verbatim to `_workspace/01_reference-miner_{submodule}_portmap.md`. Do not edit the content.
 
 ### Phase 2: Strategy + risk debate
-**실행 모드:** 에이전트 팀
+**실행 모드:** 지속형 에이전트 협업 (v2: persistent named agents; no team object)
 
-1. `TeamCreate` with two members: `strategy-architect` and `adversarial-risk-judge`, both `model: "opus"`, `subagent_type: "general-purpose"`, each told to read its `.claude/agents/<name>.md` and skill first.
-2. `TaskCreate` two tasks: `design` (owner strategy-architect: read all six `01_*_portmap.md`, write `02_strategy-architect_slices.md` with Authority List) and `audit` (owner adversarial-risk-judge, blocked by `design`: write `02_adversarial-risk-judge_verdict.md`).
-3. Let them loop via `SendMessage` until the verdict totals show `REJECTED 0`. Max 3 rounds; if round 3 still has REJECTED > 0, stop and escalate to Daniel with rejected claims side by side.
+There is no team-create/team-delete tool in v2. Named agents launched in this session form the collaboration group automatically, and `SendMessage` resumes an agent with its context intact. The judge must audit in a **fresh context**, so it is launched anew for each round rather than resumed.
+
+1. `Agent(name: "strategy-architect", subagent_type: "strategy-architect", model: "opus", run_in_background: false)` — read all six `01_*_portmap.md` and the built code, write `02_strategy-architect_slices.md` ending with the Authority List.
+2. `Agent(subagent_type: "adversarial-risk-judge", model: "opus")` with **no name** and a prompt that limits it to `02_strategy-architect_slices.md` plus the cited `references/` lines — write `02_adversarial-risk-judge_verdict.md`, totals line first.
+3. If the totals show `REJECTED > 0`: `SendMessage({to: "strategy-architect"})` with the rejected claim ids and the judge's exact fixes; the architect revises in place. Then launch a **new** judge (fresh context, prior verdict path passed as "prior output exists") for the next round. Max 3 rounds; if round 3 still has REJECTED > 0, stop and escalate to Daniel with the rejected claims side by side.
 4. Confirm both 02 files are saved in `_workspace/`.
-5. `TeamDelete` — mandatory before Phase 3 (only one team may be active; sub-agent calls follow).
+5. Nothing to tear down. The architect stays addressable for later "redesign slice N" requests; sub-agent calls for Phase 3 follow directly.
 
 ### Phase 3: Build slices
 **실행 모드:** 서브 에이전트
@@ -120,7 +122,7 @@ Relay to Daniel: built / passed / gaps / one NEXT step, in plain English. Do not
 ```
 _workspace/00_input/request.md
    └─► Phase 1 (×6, parallel) ─► 01_reference-miner_{submodule}_portmap.md ×6
-         └─► Phase 2 team ─► 02_strategy-architect_slices.md ◄─SendMessage─► 02_adversarial-risk-judge_verdict.md
+         └─► Phase 2 agents ─► 02_strategy-architect_slices.md ◄─SendMessage─► 02_adversarial-risk-judge_verdict.md
                └─► Phase 3 per slice ─► src/master_finhub/**, tests/**
                      ├─► 03_runtime-builder_slice{N}.md
                      └─► 03_boundary-qa_slice{N}.md
@@ -136,7 +138,7 @@ Judge reads only `02_strategy-architect_slices.md` + cited `references/` lines. 
 | One miner fails or times out | Retry once; if still failing, proceed and record the gap in the architect's input (`portmap <submodule> missing`) |
 | ≥3 miners fail | Stop; tell Daniel which submodules failed and the errors; ask whether to proceed |
 | Architect/judge still disagree after 3 rounds | Stop the loop; keep both positions side by side in the verdict; escalate to Daniel — never delete either view |
-| Team member stops mid-task | SendMessage to check status; restart once; if still down, record and escalate |
+| Named agent stops mid-task | SendMessage to check status; restart once; if still down, record and escalate |
 | Builder gate red | One retry with QA's defect list; still red → stop slices, report in Phase 4 |
 | QA tool missing (pytest/ruff/black/mypy) | Report FAIL with the missing tool; tell Daniel to run `uv pip install -e .[dev]`; never mark PASS |
 | `_workspace/` collision on new input | Move to `_workspace_{YYYYMMDD_HHMMSS}/`, never overwrite or delete |
@@ -146,7 +148,7 @@ Judge reads only `02_strategy-architect_slices.md` + cited `references/` lines. 
 ### 정상 흐름
 1. Daniel: "build the master finhub runtime". No `_workspace/` → initial run.
 2. Phase 1: six Explore agents return; six `01_*_portmap.md` files written.
-3. Phase 2: team of 2; architect writes slices + Authority List; judge round 1 rejects 2 claims; architect revises; round 2 totals `REJECTED 0`; `TeamDelete`.
+3. Phase 2: named architect writes slices + Authority List; a fresh unnamed judge rejects 2 claims in round 1; `SendMessage` to the architect, it revises; a new judge's round 2 totals `REJECTED 0`; no teardown.
 4. Phase 3: slice 1 build → QA PASS (`python -m master_finhub.cli "echo hi"` prints `hi`); slices 2 and 3 likewise.
 5. Phase 4: `04_boundary-qa_report.md` lists 3 slices built, all four commands exit 0, gaps = slices 4–11 pending.
 
