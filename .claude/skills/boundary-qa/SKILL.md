@@ -20,7 +20,7 @@ Most integration bugs live between two files that each look correct alone: the t
    ```
    Then run the slice's proof command if it has one (e.g. `python -m master_finhub.cli "echo hi"`).
 4. **Compliance sweep** of files touched: no real names, emails, phone numbers, account numbers, Mercury ids, API keys or tokens in `src/` or `tests/`.
-5. **Write** `_workspace/03_boundary-qa_slice{N}.md`. First line `RESULT: PASS` only if every boundary matches, all four commands exit 0, the proof command produces the expected output, and the sweep is clean. Otherwise `RESULT: FAIL`.
+5. **Write** `_workspace/03_boundary-qa_slice{N}.md`. First line `RESULT: PASS` only if every boundary matches, all four commands exit 0, the proof command produces the expected output, at least one adversarial probe is recorded as a `probe:` or `mutant:` row with its output, and the sweep is clean. Otherwise `RESULT: FAIL`.
 
 ## Report format (slice)
 
@@ -36,13 +36,14 @@ RESULT: FAIL
 | CLI output ↔ test | cli.py:20 prints `result.text` | tests/test_loop.py:31 asserts stdout == "hi\n" | yes |
 
 ## Gate
-| command | exit | output (on failure, ≤60 lines) |
+| command | exit | output observed (summary line on success; ≤60 lines on failure) |
 |---|---|---|
 | pytest -q | 1 | `FAILED tests/test_loop.py::test_echo_round_trip - KeyError: 'text'` |
-| ruff check src tests | 0 | |
-| black --check src tests | 0 | |
-| mypy --strict src | 0 | |
+| ruff check src tests | 0 | `All checks passed!` |
+| black --check src tests | 0 | `3 files would be left unchanged.` |
+| mypy --strict src | 0 | `Success: no issues found in 3 source files` |
 | proof: python -m master_finhub.cli "echo hi" | 1 | `KeyError: 'text'` |
+| probe: python -m master_finhub.cli (no argument) | 2 | `error: the following arguments are required: ...` |
 
 ## Defects
 1. runtime/loop.py:54 — passes `message`, schema declares `text` (expected `text`).

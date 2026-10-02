@@ -13,6 +13,7 @@ Use this guidance when you include a QA agent in a build harness. Based on bugs 
 4. [QA as a workflow (v2)](#4-workflow-based-qa-v2)
 5. [Verification checklist template](#5-verification-checklist-template)
 6. [QA agent definition template](#6-qa-agent-definition-template)
+7. [Verifier stance, evidence and strategy by change type](#7-verifier-stance-evidence-and-strategy-by-change-type)
 
 ---
 
@@ -210,3 +211,79 @@ Confirm that the implementation matches the spec and verify the **integration co
 | The creation page stays in the waiting state | State transition → code | The code that changes the state to the final state is missing. |
 | Accessing `data.failedIndices` causes a crash | Immediate response → frontend | The frontend accesses the background processing result from the immediate response. |
 | A 404 occurs when opening the detail page after completion | File path → `href` | The route prefixes do not match. |
+
+---
+
+## 7. Verifier stance, evidence and strategy by change type
+
+> Adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:251 (MIT), sections cited at their own lines below. Rewritten for FinHub; the verdict rules in 7-2 deliberately differ from the source.
+
+### 7-1. Stance
+
+A QA agent exists to break the work, not to approve it. It fails in two predictable ways: it reads the code and writes up what it would have run instead of running it, and it passes work whose first, visible part is good (green suite, page renders) without trying the edges. Assume the orchestrator may re-run any command in your report; a passing row with no output, or output that a re-run does not reproduce, discredits the whole report. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:251-253 (MIT))
+
+### 7-2. Evidence per check
+
+Each check is recorded as a command plus what it printed, never as a description of code:
+
+```markdown
+| check | command | exit | output observed |
+|---|---|---|---|
+| CLI rejects empty input | `python -m app.cli ""` | 2 | `error: input must not be empty` |
+```
+
+A check with no command is a skip. A skipped required check makes the report FAIL. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:322 (MIT))
+
+FinHub differences from the source, kept on purpose: the verdict is the **first** line (`RESULT: PASS` or `RESULT: FAIL`, see `quality-gates.md` §3-1), and there is no PARTIAL — a check that cannot run because a tool or service is missing is a FAIL that names what is missing.
+
+### 7-3. Before PASS
+
+Record at least one adversarial probe and its outcome, even if the code handled it: a boundary value, an unknown id, the same mutating call twice, two concurrent calls, or a mutation spot-check on a scratch copy (`quality-gates.md` §3-4). If every row says "exit 0" or "suite passes", only the happy path has been seen. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:312 (MIT))
+
+### 7-4. Excuses to catch yourself making
+
+| the thought | what goes in the report instead |
+|---|---|
+| "The code looks right" | A gate row: the command that exercises that code path, its exit code and its output. |
+| "The builder's tests pass" | Your own `pytest -q` row, then at least one `probe:` row the builder's tests do not cover. |
+| "Probably fine" | A `probe:` row aimed at the case you were unsure about. |
+| "No browser / no server available" | A row showing how you looked (`which <tool>`, the session's tool list). If it is truly absent: FAIL, naming it. |
+| "Too slow to check" | Start it with a time limit; if it does not finish, FAIL with the limit and the command named. |
+
+(adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:294 (MIT))
+
+### 7-5. Before FAIL
+
+These checks apply only to findings outside the PASS conditions in `quality-gates.md` §3-1. For such a finding, confirm it is real before reporting FAIL:
+
+- **Guarded elsewhere?** Open the upstream validation or downstream recovery line that would stop it.
+- **Declared deliberate?** Only the design document, or a revision of it the judge has audited, counts. A deviation the builder lists in its own report does not; record that deviation as a defect for the orchestrator to accept or reject. A code comment saying "intentional" does not count either.
+- **Only fixable by violating an interface that the design says an outside party owns?**
+
+A finding set aside by any of these is still listed in the report as `observation:` with the line you opened as evidence, so it cannot disappear. None of these checks waives any PASS condition in `quality-gates.md` §3-1: a failed or skipped gate or proof command, a skipped probe, a probe whose observed behaviour differs from the design (an error-path probe that exits non-zero as designed is not a failure), a proof command with the wrong output, any boundary mismatch, a compliance-sweep hit, or a surviving non-equivalent mutant. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:315 (MIT))
+
+### 7-6. Standing reminder
+
+Give the QA agent a two-line reminder covering three things: read-only on the project, scratch work only in a temp directory, and the verdict format. Put it at the top of the agent file, and have the orchestrator include the same text in every QA spawn prompt so it is re-sent each time QA is started. The source declares such a reminder as a per-agent field documented as re-injected every user turn and passes it through to the host's agent field; the pinned source contains no injector of its own, and a prompt-only harness can re-send it per spawn, not per turn. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:127 and :79 (MIT))
+
+### 7-7. Strategy by change type
+
+Pick the row for what changed. Scale the checking to what a defect would cost: a throwaway script needs a smoke run; anything that moves money or writes a system of record gets every probe. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:268 and :290 (MIT))
+
+| change type | exercise it | try to break it |
+|---|---|---|
+| CLI or script | Run with typical arguments; check stdout, stderr and exit code; check `--help` matches behaviour | Empty, malformed and boundary arguments |
+| API or server | Start it; call each changed endpoint; compare body fields with the declared contract, not only the status code | Error paths, unknown ids, the same mutating call twice |
+| Library | Build, full suite, then import from a fresh interpreter and call the exported API the way a downstream user would | Exported names versus the documented ones |
+| Bug fix | Reproduce the bug first, then confirm the fix and run regressions | Neighbouring behaviour for side effects |
+| Refactor | Existing suite passes unchanged; public surface diff is empty | Same inputs give same outputs on a sample |
+| Data pipeline | Run a sample; check schema and types | Empty input, one row, nulls; row count in versus out |
+| Migration | Up, check schema, down | Run against populated data, not an empty database |
+| Infrastructure or config | Validate syntax; dry-run | Every defined env var or secret is actually read |
+| Frontend | Use the browser tools you have; fetch a sample of referenced assets (a page can return 200 while its assets fail) | Console errors, broken links (section 2-2) |
+| **Lending, serviceability or duty calculation** (FinHub) | Recompute the expected figure by hand for a synthetic applicant from the rule the design cites | The design's threshold T and one smallest step either side (T − ε, T + ε) in the threshold's own unit (e.g. 0.01 percentage points for a ratio, one cent for an amount), rounding direction, units (monthly vs annual, % vs bps, gross vs net income). Any mismatch is FAIL unless the design states a tolerance |
+| **CRM or system-of-record write** (FinHub) | Run against a stub or sandbox only, with synthetic fixtures; read the record back after writing | The same write twice (no duplicate), a write to an unknown id (explicit error), no real client data in fixtures |
+| **Returns, backtest or eval scoring** (FinHub) | Apply guardrails G1-G6 in `quality-gates.md` §2-3 | A synthetic series on which a look-ahead feature would score perfectly must not |
+| Anything else | Find a way to run it directly, compare with the expectation | Inputs the builder did not test |
+
+Mobile rows from the source are not carried; no FinHub harness ships a mobile app.
