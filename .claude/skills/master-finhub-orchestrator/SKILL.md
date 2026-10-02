@@ -93,7 +93,9 @@ Agent(
   subagent_type: "general-purpose",
   model: "sonnet",
   prompt: "You are boundary-qa. Read .claude/agents/boundary-qa.md first.
-    Verify slice N; write _workspace/03_boundary-qa_slice{N}.md."
+    Verify slice N; write _workspace/03_boundary-qa_slice{N}.md.
+    Standing reminder: do not edit src/, tests/ or any repo file; scratch work only in a temp
+    directory, deleted afterwards; the report's first line starts with RESULT: PASS or RESULT: FAIL."
 )
 ```
 
@@ -111,7 +113,9 @@ Agent(
   model: "sonnet",
   prompt: "You are boundary-qa. Read .claude/agents/boundary-qa.md first.
     Write _workspace/04_boundary-qa_report.md from all _workspace/02_* and 03_* files,
-    re-running pytest -q, ruff check src tests, black --check src tests, mypy --strict src."
+    re-running pytest -q, ruff check src tests, black --check src tests, mypy --strict src.
+    Standing reminder: do not edit src/, tests/ or any repo file; scratch work only in a temp
+    directory, deleted afterwards."
 )
 ```
 

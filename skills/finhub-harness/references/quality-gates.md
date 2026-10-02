@@ -162,7 +162,7 @@ Run QA after each slice, not once at the end. Defects found late are expensive a
 
 ### 3-1. The verdict line
 
-The first line of every QA report is exactly `RESULT: PASS` or `RESULT: FAIL`, so the orchestrator reads it without parsing. PASS requires all of: every boundary matches, all gate commands exit 0, the proof command produces the expected output, and the compliance sweep is clean. A command that cannot run is a FAIL with the missing tool named; QA never marks PASS by skipping.
+The first line of every slice QA report starts with `RESULT: PASS` or `RESULT: FAIL`, so the orchestrator reads it without parsing. PASS requires all of: every boundary matches, all gate commands exit 0, the proof command produces the expected output, and the compliance sweep is clean. A command that cannot run is a FAIL with the missing tool named; QA never marks PASS by skipping. Every check behind that line is a command with its observed output, and PASS also needs at least one recorded adversarial probe (`qa-agent-guide.md` section 7).
 
 ### 3-2. Shape comparison across boundaries
 
@@ -291,6 +291,8 @@ Every number gets its source and the date it was read. Write "`624 passed, 9 ski
       gets imported, run an unmutated baseline first, and prove the repo is unchanged afterwards.
 - [ ] A surviving non-equivalent mutant is a FAIL even when every gate is green. An equivalent
       mutant needs a written argument.
+- [ ] Before PASS, record at least one adversarial probe (`probe:` or `mutant:` row) with its output.
+      Every gate row carries its observed output, the summary line on success included.
 - [ ] Re-run timing and concurrency tests 10 times. Check for stray processes and scratch files.
 - [ ] Sweep touched files for real client data, secrets and personal identifiers.
 - [ ] Report; do not fix. Give each defect as file:line, expected versus actual.
