@@ -254,3 +254,40 @@ def test_mkdtemp_failure_is_failed_result(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr("master_finhub.evals.runner.tempfile.mkdtemp", fail)
     r = run_case(make_bench(tmp_path))
     assert r.passed is False and r.error is not None and r.error.startswith("OSError")
+
+
+def _write(tmp_path: Path, name: str, **over: Any) -> Path:
+    make_bench(tmp_path, **over)
+    p = tmp_path / name
+    (tmp_path / "b.json").rename(p)
+    return p
+
+
+def test_duplicate_explicit_ids_rejected(tmp_path: Path) -> None:
+    a = _write(tmp_path, "a.json", id="same", task="echo 1")
+    b = _write(tmp_path, "b2.json", id="same", task="echo 2")
+    with pytest.raises(ValueError, match="duplicate.*same"):
+        run_suite([a, b])
+
+
+def test_main_exit_2_on_duplicate_ids(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    a = _write(tmp_path, "a.json", id="same", task="echo 1")
+    b = _write(tmp_path, "b2.json", id="same", task="echo 2")
+    assert main([str(a), str(b)]) == 2
+    assert "same" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), -1, True, "5", None])
+def test_cutoff_s_must_be_finite_non_negative_number(tmp_path: Path, bad: Any) -> None:
+    with pytest.raises(ValueError, match="cutoff_s"):
+        make_bench(tmp_path, cutoff_s=bad)
+
+
+def test_main_exit_2_on_nan_cutoff(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    p = tmp_path / "n.json"
+    make_bench(tmp_path)
+    text = (tmp_path / "b.json").read_text().replace('"cutoff_s": 30', '"cutoff_s": NaN')
+    assert "NaN" in text
+    p.write_text(text)
+    assert main([str(p)]) == 2
+    assert "cutoff_s" in capsys.readouterr().out

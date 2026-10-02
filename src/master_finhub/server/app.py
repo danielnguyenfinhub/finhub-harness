@@ -16,7 +16,6 @@ import uuid
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Final
-from urllib.parse import urlsplit
 
 from master_finhub.orchestration.modes.subagent import _both
 from master_finhub.runtime.context import ContextManager
@@ -47,6 +46,7 @@ MAX_BODY_BYTES: Final = 64 * 1024
 MAX_RUNNING: Final = 4
 MAX_RETAINED: Final = 32
 LOOPBACK: Final = frozenset({"127.0.0.1", "::1", "localhost"})
+READ_TIMEOUT_S: Final = 30.0  # per-connection socket timeout; SSE only writes, so it is unaffected
 
 LLMFactory = Callable[[], LLM]
 
@@ -72,6 +72,7 @@ class RunServer(ThreadingHTTPServer):
         guard: ToolGuard,
         max_steps: int,
         timing: tuple[float, float, float],
+        read_timeout_s: float,
     ) -> None:
         super().__init__(address, _Handler)
         self.session_key = secrets.token_urlsafe(32)
@@ -84,6 +85,7 @@ class RunServer(ThreadingHTTPServer):
         self.guard = guard
         self.max_steps = max_steps
         self.timing = timing
+        self.read_timeout_s = read_timeout_s
         self._lock = threading.Lock()
         self._running = 0
 
@@ -142,7 +144,9 @@ class RunServer(ThreadingHTTPServer):
                 checkpoint=hook,
             )
             run.events.put(SseEvent(EventName.DONE, json.dumps(loop.run(prompt))))
-        except Exception as exc:  # noqa: BLE001 - class name only: no message, no traceback
+        except BaseException as exc:  # noqa: BLE001 - always end the stream; class name only
+            # Not re-raised: nothing above a worker thread can use it, and the default thread
+            # hook would print the exception text (which may hold a secret) to stderr.
             run.events.put(SseEvent(EventName.ERROR, json.dumps(type(exc).__name__)))
         finally:
             with self._lock:
@@ -151,16 +155,34 @@ class RunServer(ThreadingHTTPServer):
 
 
 def _hostname(host_header: str | None) -> str | None:
-    if not host_header:
+    """Strict `host[:port]` or `[v6][:port]`; None for anything else (userinfo, junk, bad port)."""
+    if not host_header or any(not 0x21 <= ord(c) <= 0x7E or c in "\\@" for c in host_header):
         return None
-    try:
-        return urlsplit("//" + host_header).hostname
-    except ValueError:
+    if host_header.startswith("["):
+        name, close, rest = host_header[1:].partition("]")
+        if not close or (rest and not rest.startswith(":")):
+            return None
+        port = rest[1:] if rest else None
+    else:
+        name, colon, tail = host_header.partition(":")
+        port = tail if colon else None
+    if not name or (port is not None and not (port.isdigit() and int(port) <= 65535)):
         return None
+    return name.lower()
 
 
 class _Handler(BaseHTTPRequestHandler):
     server: RunServer
+
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(self.server.read_timeout_s)  # bounds every read; SSE only writes
+
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client left before a reply or mid-read; nothing to log (no key, no prompt)
 
     def log_message(self, format: str, *args: Any) -> None:
         pass  # request lines can carry run ids; keep stderr quiet
@@ -178,7 +200,9 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(status, {"error": f"{what} {why} {fix}"})
 
     def _allowed(self) -> bool:
-        if not self.server.allow_remote and _hostname(self.headers.get("Host")) not in LOOPBACK:
+        hosts = self.headers.get_all("Host") or []
+        one = hosts[0] if len(hosts) == 1 else None  # duplicate Host headers are ambiguous: refuse
+        if not self.server.allow_remote and _hostname(one) not in LOOPBACK:
             self._fail(
                 421,
                 "Request refused: the Host header is not a loopback name.",
@@ -304,6 +328,7 @@ def make_server(
     idle_timeout_s: float = IDLE_TIMEOUT_S,
     ping_interval_s: float = PING_INTERVAL_S,
     poll_s: float = POLL_S,
+    read_timeout_s: float = READ_TIMEOUT_S,
 ) -> RunServer:
     if host not in LOOPBACK and not allow_remote:
         raise ValueError(
@@ -322,6 +347,7 @@ def make_server(
         guard=guard,
         max_steps=max_steps,
         timing=timing,
+        read_timeout_s=read_timeout_s,
     )
 
 
