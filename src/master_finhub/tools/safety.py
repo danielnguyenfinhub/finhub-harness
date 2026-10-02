@@ -22,12 +22,36 @@ from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
 from master_finhub.runtime.loop import ToolCall, ToolGuard
+from master_finhub.tools import (
+    sensitive_paths as _sp,
+)  # the bool `sensitive_paths` shadows the module
 
 MAX_COMMAND_CHARS: Final = 10_000
 MAX_GUARD_DEPTH: Final = 16
 MAX_DEPTH: Final = 3
 MAX_FUNC_NAMES: Final = 64
 COMMAND_ARG_KEYS: Final = frozenset({"command", "cmd", "script", "shell_command"})
+# adapted from references/openharness/src/openharness/engine/query.py:1026 (MIT): file_path, path, root
+PATH_ARG_KEYS: Final = frozenset(
+    {
+        "file_path",
+        "path",
+        "root",
+        "paths",
+        "filepath",
+        "filename",
+        "file",
+        "dir",
+        "directory",
+        "cwd",
+        "source",
+        "destination",
+        "src",
+        "dst",
+        "target",
+        "uri",
+    }
+)
 PUNCT: Final = "();<>|&`"
 OPS: Final = ("&&", "||", "|&", ">>", "&>", ">&", "<(", ";", "&", "|", "(", ")", "`", ">", "<")
 REDIRECTS: Final = frozenset({">", ">>", "&>", ">&"})
@@ -146,6 +170,12 @@ RULE_REASONS: Final[Mapping[str, str]] = {
     "uninspectable-command": "the command is encoded so it cannot be inspected",
     "check-failed": "the command could not be checked",
     "not-allowlisted": "(allowlist mode) the command is not in the allowed list",
+    "sensitive-path": "touches a credential or key location (SSH, cloud, registry or token "
+    "files); ask Daniel to handle credentials manually",
+    "path-too-long": "a path or command word is longer than its limit after expanding ~ and "
+    "$VARS (4,096 for path arguments, 10,000 in commands) and was not inspected",
+    "path-budget": "the call names more path components than can be inspected at once "
+    "(16,384); split it into smaller calls",
 }
 
 
@@ -161,6 +191,7 @@ DEFAULT_POLICY: Final = CommandPolicy()
 @dataclass
 class _State:
     depth: int
+    sensitive: bool = True
     cwd_root: bool = False
     downloaded: set[str] = field(default_factory=set)
 
@@ -282,9 +313,9 @@ def _inline_kind(host: str, arg: str) -> Literal["cmd", "enc"] | None:
     return None
 
 
-def _inline_rule(name: str, args: list[str], depth: int) -> str | None:
+def _inline_rule(name: str, args: list[str], depth: int, sensitive: bool) -> str | None:
     if name == "eval":
-        return _check(" ".join(args), depth + 1)
+        return _check(" ".join(args), depth + 1, sensitive)
     if name not in SHELL_HOSTS:
         return None
     for i, a in enumerate(args):
@@ -292,11 +323,30 @@ def _inline_rule(name: str, args: list[str], depth: int) -> str | None:
         if kind == "enc":
             return "uninspectable-command"
         if kind == "cmd" and i + 1 < len(args):
-            return _check(" ".join(args[i + 1 :]), depth + 1)
+            return _check(" ".join(args[i + 1 :]), depth + 1, sensitive)
+    return None
+
+
+def _pathish(word: str) -> bool:
+    return "/" in word or "\\" in word or word.startswith(("~", ".", "$"))
+
+
+def _sensitive_word_rule(words: list[str]) -> str | None:
+    """OH31: every raw word, before strip_wrappers, so VAR=~/.x and wrapper flag values count."""
+    scan = _sp.current_scan() or _sp.Scan()
+    for w in words:
+        if w not in scan.cmd:
+            scan.cmd[w] = _sp.sensitive_rule(w, resolve=_pathish(w), max_chars=MAX_COMMAND_CHARS)
+        if scan.cmd[w] is not None:
+            return scan.cmd[w]
     return None
 
 
 def segment_rule(words: list[str], state: _State) -> str | None:
+    if state.sensitive:
+        hit = _sensitive_word_rule(words)
+        if hit:
+            return hit
     core = strip_wrappers(words)
     if not core:
         return None
@@ -363,7 +413,7 @@ def segment_rule(words: list[str], state: _State) -> str | None:
                 state.downloaded.add(args[i + 1].removeprefix("./"))
     if is_interpreter(name) and any(a.removeprefix("./") in state.downloaded for a in args):
         return "run-downloaded-script"
-    return _inline_rule(name, args, state.depth)
+    return _inline_rule(name, args, state.depth, state.sensitive)
 
 
 def split_ops(tok: str) -> list[str]:
@@ -430,8 +480,8 @@ def fork_bomb(command: str) -> bool:
     return any(f"{n}|{n}&" in flat for n in names)
 
 
-def _check_tokens(tokens: list[str], depth: int) -> str | None:
-    state = _State(depth=depth)
+def _check_tokens(tokens: list[str], depth: int, sensitive: bool) -> str | None:
+    state = _State(depth=depth, sensitive=sensitive)
     segs = segments(tokens)
     prev_name, pipe_source = "", False
     for idx, (sep, words) in enumerate(segs):
@@ -466,7 +516,14 @@ def _normalise(command: str) -> str:
     return command.replace("\\\r\n", "").replace("\\\n", "")
 
 
-def _check(command: str, depth: int = 0) -> str | None:
+def _check(command: str, depth: int = 0, sensitive: bool = True) -> str | None:
+    if depth == 0:  # one Scan (memo + component budget) per top-level call
+        with _sp.call_scope():
+            return _check_inner(command, depth, sensitive)
+    return _check_inner(command, depth, sensitive)
+
+
+def _check_inner(command: str, depth: int, sensitive: bool) -> str | None:
     if depth > MAX_DEPTH:
         return "nesting-too-deep"
     if len(command) > MAX_COMMAND_CHARS:
@@ -480,16 +537,16 @@ def _check(command: str, depth: int = 0) -> str | None:
     if not streams:
         return "unparseable"
     for tokens in streams:
-        rule = _check_tokens(tokens, depth)
+        rule = _check_tokens(tokens, depth, sensitive)
         if rule:
             return rule
     return None
 
 
-def check_rule(command: str) -> str | None:
+def check_rule(command: str, *, sensitive_paths: bool = True) -> str | None:
     """Return the matched rule name, or None. Any internal error fails closed."""
     try:
-        return _check(command)
+        return _check(command, 0, sensitive_paths)
     except Exception:  # noqa: BLE001 - fail closed
         return "check-failed"
 
@@ -514,9 +571,11 @@ def _denial(rule: str) -> str:
     )
 
 
-def check_command(command: str, policy: CommandPolicy = DEFAULT_POLICY) -> str | None:
+def check_command(
+    command: str, policy: CommandPolicy = DEFAULT_POLICY, *, sensitive_paths: bool = True
+) -> str | None:
     """Return denial text for the model, or None to allow. Denylist always wins."""
-    rule = check_rule(command)
+    rule = check_rule(command, sensitive_paths=sensitive_paths)
     if rule:
         return _denial(rule)
     if policy.mode != "allowlist":
@@ -543,24 +602,43 @@ def _check_value(value: Any, policy: CommandPolicy) -> str | None:
     return _denial("check-failed")
 
 
+def _path_rule(value: Any, scan: _sp.Scan) -> str | None:
+    """Rule for a path-key value: a str, or each str of a list/tuple. Memoised per call."""
+    for v in (
+        [value] if isinstance(value, str) else value if isinstance(value, (list, tuple)) else []
+    ):
+        if isinstance(v, str):
+            if v not in scan.path:
+                scan.path[v] = _sp.sensitive_rule(v, resolve=True, max_chars=_sp.PATH_MAX_CHARS)
+            if scan.path[v] is not None:
+                return scan.path[v]
+    return None
+
+
 def _guard(call: ToolCall, policy: CommandPolicy) -> str | None:
     try:
-        stack: list[tuple[Any, int]] = [(call.arguments, 0)]
-        while stack:
-            node, depth = stack.pop()
-            if depth > MAX_GUARD_DEPTH:
-                return _denial("check-failed")
-            if isinstance(node, dict):
-                for key, val in node.items():
-                    if str(key).casefold() in COMMAND_ARG_KEYS:
-                        denial = _check_value(val, policy)
-                        if denial is not None:
-                            return denial
-                    else:
+        with _sp.call_scope() as scan:
+            stack: list[tuple[Any, int]] = [(call.arguments, 0)]
+            while stack:
+                node, depth = stack.pop()
+                if depth > MAX_GUARD_DEPTH:
+                    return _denial("check-failed")
+                if isinstance(node, dict):
+                    for key, val in node.items():
+                        name = str(key).casefold()
+                        if name in COMMAND_ARG_KEYS:
+                            denial = _check_value(val, policy)
+                            if denial is not None:
+                                return denial
+                            continue
+                        if name in PATH_ARG_KEYS:
+                            rule = _path_rule(val, scan)
+                            if rule is not None:
+                                return _denial(rule)
                         stack.append((val, depth + 1))
-            elif isinstance(node, (list, tuple)):
-                stack.extend((v, depth + 1) for v in node)
-        return None
+                elif isinstance(node, (list, tuple)):
+                    stack.extend((v, depth + 1) for v in node)
+            return None
     except Exception:  # noqa: BLE001 - fail closed
         return _denial("check-failed")
 
