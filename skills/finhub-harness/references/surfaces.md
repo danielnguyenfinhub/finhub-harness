@@ -60,17 +60,17 @@ A skill is uploaded as a zip of the skill folder (`SKILL.md` plus `references/`)
 
 ### Orchestration primitives
 
-Sub-agent, `SendMessage`, Task and Workflow tools are believed unavailable — unverified — confirm in that surface before relying on it. Until confirmed, do not tell a chat-surface orchestrator to call them. A "team" runs as ONE context that plays each role in turn.
+Sub-agent, `SendMessage`, native Task and Workflow tools are not exposed in chat. Observed 2026-10-03 on the Claude mobile app: asked (probe P2) to state which tools it could call without calling any, the chat answered no for all four, and asked (probe P4) to spawn a sub-agent that replies "pong", it declined because no such tool exists. This is the chat's own report of its tool list, not an independent test, and it covers one account on one client; treat it as strong evidence for that setup and unverified elsewhere. Do not tell a chat-surface orchestrator to call these tools. A "team" runs as ONE context that plays each role in turn.
 
-Whether chat can write files or create artefacts depends on the account's tool settings: unverified — confirm in that surface before relying on it. Whether connectors or MCP tools are attached in a given chat also varies: unverified — confirm in that surface before relying on it.
+File writing and connectors depend on the account's tool settings. Observed 2026-10-03 on the same chat (account with file creation and connectors enabled): file creation was available (`create_file`, `str_replace`, `bash_tool`, finished files placed in an outputs folder and presented to the user), not a `_workspace/` folder; MCP connectors were listed but deferred, so none is callable until its schema is loaded with the chat's tool-search step, and any of them can still fail on auth or a lapsed connection after loading. On an account without these settings this is unverified. Hooks were reported as not exposed. Probes P1, P3, P5 and P6 have not been run on chat.
 
 ### Modes on Claude chat
 
 | Mode | Status | How |
 |------|--------|-----|
 | A: Workflow | Degraded | Each workflow phase becomes a labelled section, run in order in one context. |
-| B: Persistent agents | Degraded | Roles become labelled turns of the same context. Agent-to-agent messaging believed unavailable (unverified). |
-| C: Sub-agents | Degraded | Each sub-agent becomes a labelled role pass. Context isolation believed unavailable (unverified). |
+| B: Persistent agents | Degraded | Roles become labelled turns of the same context. Agent-to-agent messaging unavailable (observed 2026-10-03, self-reported by the chat). |
+| C: Sub-agents | Degraded | Each sub-agent becomes a labelled role pass. No sub-agent tool is exposed, so there is no context isolation (observed 2026-10-03; P4 declined). |
 
 ### The degradation rule
 
@@ -122,7 +122,7 @@ Rule of thumb: pick the strongest mode the surface supports, write the weaker on
 | `SKILL.md` frontmatter (`name`, `description`) | used | used | used |
 | `references/*.md` loaded on demand | used | used (inside the zip) | used |
 | `agents/*.md` custom types | used | believed not applicable (unverified) | uncommon; unverified |
-| `_workspace/` handoff files | used | inline blocks instead (file writing unverified) | unverified |
+| `_workspace/` handoff files | used | inline blocks by default; where file creation is enabled, write to the outputs folder and present the file (observed 2026-10-03) | unverified |
 | Change history in `CLAUDE.md` | used | believed unavailable (unverified); keep it in the skill or ask the user to store it | unverified |
 
 ## 4. Primitive by surface
@@ -131,13 +131,13 @@ Legend: ✓ available, degraded (works with reduced guarantees), ✗ not availab
 
 | Primitive | Claude Code | Claude chat | Claude Cowork |
 |-----------|-------------|-------------|---------------|
-| `Agent` (sub-agents) | ✓ | unverified (believed ✗) | unverified |
-| Named agents + `SendMessage` | ✓ | unverified (believed ✗) | unverified |
-| `Workflow` | ✓ (user opt-in) | unverified (believed ✗) | unverified |
-| Tasks (`TaskCreate`/`TaskUpdate`/`TaskList`) | ✓ | unverified (believed ✗) | unverified |
-| Files / `_workspace/` | ✓ | degraded (inline blocks; files only if the account provides them, unverified) | unverified |
-| Connectors / MCP | ✓ (MCP servers configured in the session) | unverified | unverified (believed ✓) |
-| Hooks | ✓ | unverified (believed ✗) | unverified (rare) |
+| `Agent` (sub-agents) | ✓ | ✗ (observed 2026-10-03, self-reported; P4 declined) | unverified |
+| Named agents + `SendMessage` | ✓ | ✗ (observed 2026-10-03, self-reported) | unverified |
+| `Workflow` | ✓ (user opt-in) | ✗ (observed 2026-10-03, self-reported) | unverified |
+| Tasks (`TaskCreate`/`TaskUpdate`/`TaskList`) | ✓ | ✗ native; only connector task tools (observed 2026-10-03, self-reported) | unverified |
+| Files / `_workspace/` | ✓ | degraded: file creation available on an account with it enabled, written to an outputs folder, not `_workspace/` (observed 2026-10-03); otherwise inline blocks | unverified |
+| Connectors / MCP | ✓ (MCP servers configured in the session) | ✓ but deferred: schema must be loaded first; failures only visible after a call (observed 2026-10-03, account-dependent) | unverified (believed ✓) |
+| Hooks | ✓ | ✗ (observed 2026-10-03, self-reported) | unverified (rare) |
 
 ## 5. How the factory must write the orchestrator
 
