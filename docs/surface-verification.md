@@ -26,9 +26,9 @@ Run in order. Record exactly what happens, including error text. Do not retry a 
 | Probe | Chat result | Cowork result |
 |---|---|---|
 | P1 | | |
-| P2 | | |
+| P2 | 2026-10-03, Claude mobile app, file creation and connectors enabled. Self-reported, no calls made: Agent no, SendMessage no, Workflow no, TaskCreate no (native; connector task tools only), file write yes (outputs folder), MCP connectors yes but deferred (schema must be loaded first), hooks no. | |
 | P3 | | |
-| P4 | | |
+| P4 | 2026-10-03, same chat. Declined: no sub-agent tool exposed, would not simulate a reply. Consistent with P2. | |
 | P5 | | |
 | P6 | | |
 
