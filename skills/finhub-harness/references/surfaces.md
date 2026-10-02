@@ -48,7 +48,7 @@ The v1 team-creation and team-deletion tools do not exist, and the experimental 
 
 ### Orchestrator rule
 
-Write all three modes. State which is the default, when to pick each, and what the fallback is (A to C when the user does not opt in; B to C when messaging is not needed). Handoffs go through `_workspace/` files so any mode can resume from them.
+Write the mode(s) the work actually needs (SKILL.md Step 2-1); a three-agent pipeline is one Mode C section, not three. For each mode you write, state why it was chosen and what it falls back to (A to C when the user does not opt in to Workflow; B to C when messaging turns out unnecessary). Handoffs go through `_workspace/` files so any mode can resume from them.
 
 ## 2. Claude chat (claude.ai)
 
@@ -142,7 +142,7 @@ Legend: ✓ available, degraded (works with reduced guarantees), ✗ not availab
 ## 5. How the factory must write the orchestrator
 
 1. **Declare the target surface(s).** The orchestrator's frontmatter or description names where it runs: `Claude Code`, `Claude chat`, `Claude Cowork`, or a combination. If the user did not say, ask once; default to Claude Code only.
-2. **Write Mode A, B and C for Claude Code.** Each mode has its own section with the exact primitives from section 1, a default choice, and a fallback.
+2. **Write the chosen mode(s) for Claude Code.** Each mode you use gets its own section with the exact primitives from section 1, the reason it was chosen, and its fallback. Do not pad an orchestrator with modes it never runs.
 3. **Add `## Single-context fallback` whenever chat or Cowork is a target.** The section applies the degradation rule from section 2: labelled phases, inline handoffs, a labelled fresh-eyes verification pass, and sequential fan-out with a stated item cap.
 4. **Never name a primitive the target surface lacks.** In the single-context section, do not mention `Agent`, `SendMessage`, `Workflow` or Tasks as things to call.
 5. **Never emit v1 artefacts.** No v1 team-creation or team-deletion calls, no v1 team-name parameter, no experimental agent-teams flag, on any surface.
@@ -153,7 +153,7 @@ Legend: ✓ available, degraded (works with reduced guarantees), ✗ not availab
 | # | Check | Pass when |
 |---|-------|-----------|
 | 1 | Target surface declared | Orchestrator frontmatter or description names every target surface |
-| 2 | Code modes complete | Mode A, B and C sections exist, each with a default and a fallback |
+| 2 | Code mode(s) declared | Every mode the orchestrator runs has a section with its reason and fallback; no unused mode sections |
 | 3 | Single-context fallback present | `## Single-context fallback` exists if chat or Cowork is a target |
 | 4 | No foreign primitives | The fallback section names no sub-agent, `SendMessage`, Task or Workflow call |
 | 5 | No v1 artefacts | `scripts/package-plugin.sh` v1-artefact grep passes |

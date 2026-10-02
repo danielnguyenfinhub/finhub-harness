@@ -22,3 +22,7 @@
 	shallow = true
 	path = references/revfactory_harness
 	url = https://github.com/danielnguyenfinhub/harness.git
+[submodule "references/openharness"]
+	path = references/openharness
+	url = https://github.com/danielnguyenfinhub/OpenHarness.git
+	shallow = true

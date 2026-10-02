@@ -14,6 +14,7 @@ Pinned as read-only submodules under `references/` (see `.gitmodules`; every ups
 | `crewai` | crewAIInc/crewAI | MIT | — | adapt |
 | `deepseek_harness` | deepseek-ai/deepseek-harness | MIT | — | adapt |
 | `revfactory_harness` | revfactory/harness | Apache-2.0 | Meta-skill source; installed copy lives at `~/.claude/skills/harness`. | adapt / reference |
+| `openharness` | OpenHarness (upstream org unverified; pinned fork at danielnguyenfinhub/OpenHarness) | MIT (`LICENSE`, "Copyright (c) 2025 OpenHarness Contributors") | Pinned 2026-10-02 at 9b2efd7. Port map: `references/portmaps/openharness-9b2efd7.md` (40 rows; strongest: verification-specialist prompt rules OH23-OH27, sensitive-path denylist OH31, compaction state-ledger OH37-OH40). | adapt |
 
 ### The two hard cases
 
