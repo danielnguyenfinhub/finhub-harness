@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -87,8 +88,13 @@ def load_benchmark(path: str | os.PathLike[str]) -> Benchmark:
         if not isinstance(data.get(key), typ) or isinstance(data.get(key), bool):
             raise _bad(path, key, want)
     cutoff = data.get("cutoff_s")
-    if isinstance(cutoff, bool) or not isinstance(cutoff, (int, float)):
-        raise _bad(path, "cutoff_s", "a number")
+    if (
+        isinstance(cutoff, bool)
+        or not isinstance(cutoff, (int, float))
+        or not math.isfinite(cutoff)
+        or cutoff < 0
+    ):
+        raise _bad(path, "cutoff_s", "a finite number, zero or more")
     ground = data["ground"]
     etype = ground.get("eval", {}).get("type") if isinstance(ground.get("eval"), dict) else None
     if (
@@ -172,7 +178,16 @@ def run_case(
 
 
 def run_suite(paths: Sequence[str | os.PathLike[str]], **kw: Any) -> SuiteReport:
-    results = tuple(run_case(load_benchmark(p), **kw) for p in paths)
+    benches = [load_benchmark(p) for p in paths]
+    seen: set[str] = set()
+    for b in benches:
+        if b.case_id in seen:
+            raise ValueError(
+                f'Suite has a duplicate case id "{b.case_id}". '
+                "Give each benchmark a unique id (or remove the repeated file) and retry."
+            )
+        seen.add(b.case_id)
+    results = tuple(run_case(b, **kw) for b in benches)
     passed = sum(r.passed for r in results)
     total = len(results)
     return SuiteReport(results, passed, total - passed, total, passed / total if total else 0.0)

@@ -41,7 +41,10 @@ def test_ping_first_then_event_then_stop() -> None:
 def test_error_is_terminal() -> None:
     q: queue.Queue[SseEvent] = queue.Queue()
     q.put(SseEvent(EventName.ERROR, '"X"'))
-    assert [e.name for e in event_stream(q, poll_s=0.01)] == [EventName.PING, EventName.ERROR]
+    assert [e.name for e in event_stream(q, poll_s=0.01, idle_timeout_s=0.3)] == [
+        EventName.PING,
+        EventName.ERROR,
+    ]
 
 
 class _ClockQueue(queue.Queue[SseEvent]):
@@ -83,3 +86,11 @@ def test_real_event_resets_idle_timer() -> None:
     seen.extend(itertools.islice((e.name for e in gen), 50))
     assert seen == [EventName.PING, EventName.MESSAGE]
     assert q.now == 5.5
+
+
+def test_dropping_error_from_terminal_set_is_caught_fast() -> None:
+    """If ERROR stops being terminal the stream keeps pinging until idle; fail in 0.3 s, not 300."""
+    q: queue.Queue[SseEvent] = queue.Queue()
+    q.put(SseEvent(EventName.ERROR, '"X"'))
+    names = [e.name for e in event_stream(q, idle_timeout_s=0.3, ping_interval_s=0.05, poll_s=0.01)]
+    assert names == [EventName.PING, EventName.ERROR]
