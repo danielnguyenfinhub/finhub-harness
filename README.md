@@ -67,7 +67,7 @@ Notes: `openhands` is a UI-only fork with no agent runtime. The `openharness` up
 
 ## Gaps (stated plainly)
 
-- **Claude chat and Cowork:** whether sub-agents, messaging or file writing work there is unverified. The factory plans single-context execution on both until you confirm.
+- **Claude chat and Cowork:** whether sub-agents, messaging or file writing work there is unverified. The factory plans single-context execution on both until you confirm. The six-probe test script and result sheet are in [`docs/surface-verification.md`](docs/surface-verification.md).
 - **Docker sandbox:** its real-container test is skipped where no docker daemon exists, and was skipped in the build environment.
 - **Plugin install flow:** the commands above follow the plugin layout but were not run against a live Claude Code install.
 - **Migrated build orchestrator:** its Phase 2 was converted to the v2 tools and has not been re-run end to end.
