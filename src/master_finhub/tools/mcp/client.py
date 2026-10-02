@@ -146,7 +146,8 @@ class McpClient:
     def start(self) -> None:
         if not self._server.command:
             raise McpError("empty MCP server command")
-        denial = check_command(shlex.join(self._server.command))
+        # operator-written launch argv may name credential files (e.g. --kubeconfig ~/.kube/config)
+        denial = check_command(shlex.join(self._server.command), sensitive_paths=False)
         if denial is not None:
             raise McpError(f"MCP server '{self._server.name}' launch command denied: {denial}")
         try:
