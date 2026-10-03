@@ -5,7 +5,7 @@ A Claude plugin that builds agent teams, plus the Python runtime and build team 
 | | Capability | What you get | Status |
 | --- | --- | --- | --- |
 | 1 (primary) | **Harness factory** — `finhub-harness` and `finhub-harness-evolve` skills | Describe a domain; get a team of specialist agents, the skills each one follows, and an orchestrator written for the Claude surface you use | Built, cold-tested once on Claude Code. Chat and Cowork behaviour is **unverified** (see Gaps) |
-| 2 (secondary) | **Master FinHub runtime** — `src/master_finhub/` plus a five-agent build team in `.claude/` | A stdlib-only Python agent runtime (slices 1-11) and the team that built and QA'd it | Built; 677 tests pass, 9 skipped |
+| 2 (secondary) | **Master FinHub runtime** — `src/master_finhub/` plus a six-agent build team in `.claude/` | A stdlib-only Python agent runtime (slices 1-11) and the team that built and QA'd it | Built; 1334 tests pass, 10 skipped |
 
 ## 1. The harness factory
 
