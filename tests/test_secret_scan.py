@@ -19,7 +19,13 @@ from master_finhub.runtime.loop import (
     ToolCall,
     ToolSpec,
 )
-from master_finhub.tools.mcp.client import McpClient, McpError, StdioServer, redact
+from master_finhub.tools.mcp.client import (
+    SECRET_SHAPES,
+    McpClient,
+    McpError,
+    StdioServer,
+    redact,
+)
 from master_finhub.tools.secret_scan import RULES, redact_secrets
 
 FAKE = "FAKE"
@@ -294,6 +300,78 @@ def test_adversarial_megabyte_stays_fast(unit: str) -> None:
     started = time.perf_counter()
     redact(text, ["aaaa", "0000"], mcp_shapes=False)  # the merged-span path of a successful result
     assert time.perf_counter() - started < 2.0
+
+
+MCP_ADVERSARIAL = [*ADVERSARIAL[9:15], "eyJ.eyJ.eyJ.", "eyJaaaaa."]  # the eyJ family
+
+
+@pytest.mark.parametrize("known", [[], ["aaaa"]], ids=["no-known", "fragmenting-known"])
+@pytest.mark.parametrize("unit", MCP_ADVERSARIAL)
+def test_mcp_error_path_is_linear_on_jwt_shaped_runs(unit: str, known: list[str]) -> None:
+    # F1: SECRET_SHAPES' JWT branch had no leading boundary (quadratic: hours at 4 MB).
+    text = unit * (4_000_000 // len(unit))
+    started = time.perf_counter()
+    redact(text, known, mcp_shapes=True)
+    assert time.perf_counter() - started < 3.0  # linear: ~1 s or less; quadratic: minutes
+
+
+@pytest.mark.parametrize(
+    "wrap", ["x={}", "a: {}", " {}", "{}", '"{}"', '{{"t":"{}"}}', "{} end", "'{}'", "k={}x"]
+)
+def test_mcp_error_text_jwt_is_still_redacted(wrap: str) -> None:
+    out = redact(wrap.format(JWT), [], mcp_shapes=True)
+    assert JWT not in out and "FAKEFAKE" not in out and "[REDACTED" in out
+
+
+@pytest.mark.parametrize("glue", ["-", "_", "0", "a", "Z"])
+def test_mcp_jwt_glued_after_a_segment_character_is_not_matched(glue: str) -> None:
+    # Pins F1: the look-behind means a JWT glued after [A-Za-z0-9_-] starts no match
+    # (end-to-end result of redact(); the secret_scan table has the same boundary).
+    assert redact(glue + JWT, [], mcp_shapes=True) == glue + JWT
+
+
+@pytest.mark.parametrize("sep", [",", ";"])
+def test_bearer_token_stops_at_comma_and_semicolon(sep: str) -> None:  # F2 (R14, R15)
+    text = "Bearer " + BEARER + sep + "rest"
+    assert redact_secrets(text)[0] == "Bearer [REDACTED:bearer-token]" + sep + "rest"
+
+
+def test_jwt_at_segment_minimum_is_redacted_by_shapes_alone() -> None:
+    # QA M10/M12/M14/M16: segment 1 has 5 chars (< secret_scan R10's 10), so only SECRET_SHAPES
+    # can redact it; the fixture JWT hides this because the table's jwt rule covers it too.
+    jwt = "eyJ" + "abcde" + "." + "fghij" + "." + "klmno"
+    assert redact("e: " + jwt, [], mcp_shapes=True) == "e: [REDACTED]"
+    assert SECRET_SHAPES.sub("#", "e: " + jwt) == "e: #"
+
+
+@pytest.mark.parametrize("glued", ["xghp_" + "a" * 20, "xghs_" + "a" * 20])
+def test_glued_github_prefix_is_matched_by_shapes_only(glued: str) -> None:  # QA M25, M28
+    assert redact("e: " + glued, [], mcp_shapes=True) == "e: x[REDACTED]"
+
+
+def test_glued_pat_and_slack_prefix_are_matched_by_shapes_only() -> None:  # QA M26, M27
+    assert redact("e: x" + "github_pat_" + "a" * 20, [], mcp_shapes=True) == "e: x[REDACTED]"
+    assert redact("e: x" + "xoxb-" + "1" * 10, [], mcp_shapes=True) == "e: x[REDACTED]"
+
+
+def test_fragmenting_known_value_is_applied_with_shapes() -> None:  # QA T4
+    unit = "eyJ" + "a" * 12 + "-"
+    frag = "eyJ[REDACTED][REDACTED][REDACTED]-"  # 12 a's = three known "aaaa"; no JWT shape here
+    assert redact(unit * 3, ["aaaa"], mcp_shapes=True) == frag * 3
+    assert redact(unit * 3, [], mcp_shapes=True) == unit * 3
+
+
+def test_is_error_result_gets_the_shape_pass_through_the_call_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:  # QA M21
+    monkeypatch.setattr(McpClient, "_secrets", lambda self: [])  # no known values: shapes only
+    stub = str(Path(__file__).with_name("mcp_stub_server.py"))
+    leak = "denied: Bearer abc123"  # shorter than the table's 16, so only SECRET_SHAPES sees it
+    env = {"MCP_STUB_SECRET": leak}
+    with McpClient(StdioServer(name="stub", command=(sys.executable, stub), env=env)) as c:
+        assert c.call_tool("echo", {"text": leak}).text == leak  # success: no shape pass
+        res = c.call_tool("fail", {})
+        assert res.is_error and res.text == "boom denied: [REDACTED]"
 
 
 def test_mcp_values_and_shapes_are_merged_on_the_original_text() -> None:
