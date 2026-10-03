@@ -21,32 +21,16 @@ assert isinstance(n, str) and re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", n), n
 PY
 fi
 
-# 2. every skill has frontmatter with name and description; required skills present
+# 2. required skills present; every skill passes the shared harness lint
+#    (frontmatter, name grammar and directory, description, subagent refs, v1 artefacts)
 for s in finhub-harness finhub-harness-evolve; do
   [ -f "skills/$s/SKILL.md" ] || err "skills/$s/SKILL.md missing"
 done
-for f in skills/*/SKILL.md; do
-  [ -f "$f" ] || continue
-  python3 - "$f" <<'PY' || err "$f: frontmatter needs name and description"
-import re, sys
-t = open(sys.argv[1], encoding="utf-8").read()
-m = re.match(r"---\n(.*?)\n---\n", t, re.S)
-assert m, "no frontmatter"
-fm = m.group(1)
-assert re.search(r"^name:\s*\S", fm, re.M) and re.search(r"^description:\s*\S", fm, re.M)
-PY
-done
-
-# 3. v1 artefacts — match call/assignment syntax only, so migration guidance that
-#    merely names the removed tools (e.g. "remove TeamCreate") does not trip the gate.
-#    Reference docs may show v1 syntax in migration tables; only SKILL.md files are gated.
-if [ -d skills ] && grep -rnE --include=SKILL.md 'TeamCreate\(|TeamDelete\(|team_name:|CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=' skills/; then
-  err "v1 artefacts found in skills/ (see matches above)"
-fi
+python3 skills/finhub-harness/scripts/lint_harness.py . || err "lint_harness.py found errors (see above)"
 
 if [ "$fail" -ne 0 ]; then echo "Validation failed; nothing packaged." >&2; exit 1; fi
 
-# 4. package
+# 3. package
 rm -rf dist && mkdir -p dist
 root=$PWD
 mkzip() { # mkzip <out> <dir-to-cd> <paths...> ; excludes via -x
