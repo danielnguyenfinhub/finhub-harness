@@ -12,8 +12,14 @@ _workspace/
 ├── 01_reference-miner_crewai_portmap.md
 ├── 01_reference-miner_deepseek_harness_portmap.md
 ├── 01_reference-miner_revfactory_harness_portmap.md
+├── 01_reference-miner_openharness_portmap.md
+├── 01b_capability-scout_backlog.md                 # adoption goal: ranked backlog; Daniel picks an item id
 ├── 02_strategy-architect_slices.md                 # slice design + ## Authority List
 ├── 02_adversarial-risk-judge_verdict.md            # overwritten each round; header shows round k/3
+├── 02_strategy-architect_C3.md                     # adoption goal: one design per picked item
+├── 02_adversarial-risk-judge_C3_r1.md              # one verdict file per round, never overwritten
+├── 03_runtime-builder_C3.md
+├── 03_boundary-qa_C3.md                            # first line: RESULT: PASS | RESULT: FAIL
 ├── 03_runtime-builder_slice1.md
 ├── 03_boundary-qa_slice1.md                        # first line: RESULT: PASS | RESULT: FAIL
 ├── 03_runtime-builder_slice2.md
@@ -34,7 +40,10 @@ _workspace/
 
 | Signal | Meaning |
 |---|---|
-| six `01_*` files exist | Phase 1 complete |
+| seven `01_*` files exist | Phase 1 complete |
+| `01b_capability-scout_backlog.md` exists | Phase 1b complete; waiting on Daniel's pick |
 | verdict totals `REJECTED 0` | Phase 2 complete |
 | `03_boundary-qa_slice{N}.md` starts `RESULT: PASS` | slice N done |
+| `02_adversarial-risk-judge_<item>_r<k>.md` first line shows `REJECTED 0` | item design approved; build may start |
+| `03_boundary-qa_<item>.md` starts `RESULT: PASS` | item done; commit, push, draft PR, back to the backlog |
 | `04_boundary-qa_report.md` exists and is newer than every `03_*` | run complete |

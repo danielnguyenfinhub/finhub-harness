@@ -1,11 +1,11 @@
 ---
 name: runtime-slice-design
-description: "Designs buildable slices of the Master FinHub Python runtime (agent loop, context compaction, safety/sandbox, router, DAG engine, message bus, docker sandbox, MCP client, SSE server, evals) from the reference port maps, each slice with files, typed interfaces, a proof test, and an Authority List mapping every claim to references/<submodule>/<path>:<line>. Use for: design the slices, slice plan, redesign slice N, revise rejected claims, update the design after I changed the spec, what should slice N look like. Also read by runtime-builder before building. Not for general Python architecture outside this repo or for designing MCP servers for Mercury."
+description: "Designs buildable slices of the Master FinHub Python runtime (agent loop, context compaction, safety/sandbox, router, DAG engine, message bus, docker sandbox, MCP client, SSE server, evals) or the adoption of one backlog capability into the finhub-harness plugin, agents or runtime, from the reference port maps; each design has files, typed interfaces or insertion anchors, a proof, a test plan with mutation targets, and an Authority List mapping every claim to references/<submodule>/<path>:<line>. Use for: design the slices, slice plan, redesign slice N, design the adoption of C3, revise rejected claims, update the design after I changed the spec. Also read by runtime-builder before building. Not for general Python architecture outside this repo or for designing MCP servers (Mercury, Twilio or any other)."
 ---
 
 # Runtime Slice Design
 
-Turn six port maps into an ordered set of small, independently provable slices. Each slice must be buildable in one builder call and verifiable by four commands; anything bigger hides failures.
+Turn the seven port maps into an ordered set of small, independently provable slices, or one backlog row into one provable adoption. Each slice must be buildable in one builder call and verifiable by four commands; anything bigger hides failures.
 
 ## Steps
 
@@ -45,9 +45,13 @@ Turn six port maps into an ordered set of small, independently provable slices. 
 | A1 | ... | references/...:42 | 1 |
 ```
 
+## Adoption design (one backlog item)
+
+When the prompt names a backlog row (`C3`) instead of a slice range, write `_workspace/02_strategy-architect_<item-id>.md` with these sections, in this order: `## Source` (the backlog row and its port-map rows, re-opened), `## Target` (plugin skill / agent / runtime module / docs, and the exact files), `## Design` (for code: files and typed interfaces; for prose: each insertion as anchor line quoted verbatim + the text to insert + the one-line attribution `adapted from references/<repo>/<path>:<line> (<licence>)`), `## Proof` (the commands or greps that show every insertion or interface landed, with expected counts), `## Test plan` (unit cases, must-still-pass list, and at least three mutation targets QA can apply on a scratch copy), `## Does not cover` (honest limits and known false positives), then `## Authority List`. Keep existing tests unmodified; a design that needs an existing test changed says why in `## Design`. A prose adoption never pastes source prose: an 8-word run identical to the source is a defect.
+
 ## On revision
 
-Read the latest `02_adversarial-risk-judge_verdict.md`. Change only REJECTED/UNVERIFIED claims; keep UPHELD rows byte-identical so the judge can carry them forward. Bump the revision number in the title and list changed claim ids at the top under `## Changes in revision N`. If you believe a rejection is wrong, reply to the judge with the exact line as new evidence rather than resubmitting the same claim.
+Read the latest verdict for your design (`02_adversarial-risk-judge_verdict.md` for runtime slices; `02_adversarial-risk-judge_<item-id>_r<k>.md` with the highest `k` for an adoption). Change only REJECTED/UNVERIFIED claims; keep UPHELD rows byte-identical so the judge can carry them forward. Bump the revision number in the title and list changed claim ids at the top under `## Changes in revision N`. If you believe a rejection is wrong, reply to the judge with the exact line as new evidence rather than resubmitting the same claim.
 
 ## For the builder
 

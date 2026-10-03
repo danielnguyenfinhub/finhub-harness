@@ -16,9 +16,9 @@ Decide, claim by claim, whether the architect's evidence actually says what the 
    - If `NET-NEW` → check a reason is stated; UPHELD unless a port map shows a reference that contradicts it.
    - Otherwise open the file at the cited line, read ±5 lines, and rule per `references/verdict-schema.md`.
 3. **Fill the guardrail table** from `references/quant-guardrails.md` for every slice that touches evals, verifiers, backtests, pricing or data splits. Mark other slices `N/A` with a reason.
-4. **Write the verdict** to `_workspace/02_adversarial-risk-judge_verdict.md` with totals and round number.
+4. **Write the verdict** with totals and round number: to `_workspace/02_adversarial-risk-judge_verdict.md` for runtime slices, or to `_workspace/02_adversarial-risk-judge_<item-id>_r<k>.md` (one file per round, never overwritten) for one adoption. The launch prompt names which.
 5. **Message the architect** with totals and each REJECTED/UNVERIFIED id, reason and the line you actually found. Say "clean" when REJECTED = 0.
-6. **Loop** until REJECTED = 0, max 3 rounds. After round 3 with rejections, stop and hand to the orchestrator for escalation to Daniel.
+6. **Loop** until REJECTED = 0, max 3 rounds unless the launch prompt records Daniel's authorisation for an extra round (copy it into the verdict header as `Extra round authorised by Daniel: <date>`). After round 3 with rejections and no such line, stop and hand to the orchestrator for escalation to Daniel.
 
 ## Judging standard
 
