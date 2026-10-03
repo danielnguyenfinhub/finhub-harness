@@ -1,6 +1,6 @@
 # Verdict schema
 
-File: `_workspace/02_adversarial-risk-judge_verdict.md`. Overwritten each round. First line is always the totals so the orchestrator can gate on it without parsing.
+File: `_workspace/02_adversarial-risk-judge_verdict.md` for runtime slices (overwritten each round), or `_workspace/02_adversarial-risk-judge_<item-id>_r<k>.md` for one adoption (one file per round, never overwritten). First line is always the totals so the orchestrator can gate on it without parsing. The round field reads `round k/3`, or `round 4 (authorised)` and later when the launch prompt records Daniel's authorisation.
 
 ```markdown
 TOTALS: UPHELD 9 / REJECTED 1 / UNVERIFIED 1 — round 2/3
@@ -10,6 +10,7 @@ TOTALS: UPHELD 9 / REJECTED 1 / UNVERIFIED 1 — round 2/3
 - Audited file: _workspace/02_strategy-architect_slices.md (revision 2)
 - Audited: 2026-10-01 20:15 AEST
 - Changed claims re-audited this round: A4, A7
+- Extra round authorised by Daniel: 2026-10-01 (only on round 4 and later; copied from the launch prompt, omitted otherwise)
 
 ## Claims
 

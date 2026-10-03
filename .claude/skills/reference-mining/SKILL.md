@@ -1,11 +1,11 @@
 ---
 name: reference-mining
-description: "Extracts a licence-checked port map from one pinned reference submodule under references/ (autogpt, openhands, dify, crewai, deepseek_harness, revfactory_harness): which path:line holds an agent loop, compaction, token meter, path containment, sandbox policy, DAG/checkpoint, delegation, SSE streaming, MCP client or eval runner pattern, and whether it may be ported. Use for: mine references, build a port map, re-mine dify, where does deepseek do compaction, what can we port from crewai, update the port map. Not for reading arbitrary third-party repos outside references/ or for general library docs questions."
+description: "Extracts a licence-checked port map from one pinned reference submodule under references/ (autogpt, openhands, dify, crewai, deepseek_harness, revfactory_harness, openharness): which path:line holds a runtime pattern (agent loop, compaction, token meter, path containment, sandbox policy, DAG/checkpoint, delegation, SSE streaming, MCP client, eval runner) or a harness-factory pattern (agent/skill conventions, coordinator prompts, verification rules, permission checks, judge panels, hooks, memory ledgers), and whether it may be ported. Use for: mine references, build a port map, re-mine dify, where does deepseek do compaction, what can we port from crewai, what does openharness do for verification, update the port map. Not for reading arbitrary third-party repos outside references/ or for general library docs questions."
 ---
 
 # Reference Mining
 
-Produce one port map per submodule so the architect can cite exact lines and the judge can re-open them. The port map is the only bridge between six large repos and a small design — a wrong line number here becomes a REJECTED claim two phases later, so precision beats coverage.
+Produce one port map per submodule so the scout can rank, the architect can cite exact lines and the judge can re-open them. The port map is the only bridge between seven large repos and a small design — a wrong line number here becomes a REJECTED claim two phases later, so precision beats coverage.
 
 ## Steps
 
@@ -31,6 +31,22 @@ Produce one port map per submodule so the architect can cite exact lines and the
 | 10 | SSE ping/idle streaming | `dify/api/core/app/apps/streaming_utils.py` (pattern only) |
 | 11 | benchmark harness/runner/evaluator | `autogpt/classic/direct_benchmark/` (MIT only) |
 | meta | harness/skill/agent conventions | `revfactory_harness/` |
+
+## Target patterns for the harness factory
+
+Mined when the orchestrator's scope line says `factory` or `both` (the default). These feed the plugin under `skills/` and the team under `.claude/`, not the runtime.
+
+| Area | Pattern | Likely source |
+|---|---|---|
+| coordinator | orchestrator/coordinator prompts: role split, hand-off, standing reminders | `openharness/src/openharness/coordinator/`, `revfactory_harness/` |
+| verification | QA and reviewer rules: probe before pass, rationalisation lists, before-fail guards | `openharness/src/openharness/coordinator/agent_definitions.py` |
+| permissions | permission modes, denylists, path and command rules evaluated before allow | `openharness/src/openharness/permissions/` |
+| memory | compaction state ledgers, session memory, what survives a context reset | `openharness/`, `deepseek_harness/packages/compaction/` |
+| hooks | pre/post tool hooks, plugin loaders | `openharness/src/openharness/hooks/`, `openharness/plugins/` |
+| evaluation | judge panels, multi-reviewer consensus, benchmark scoring | `autogpt/classic/direct_benchmark/`, `crewai` |
+| retrospective | learning loops that feed run results back into prompts or skills | `revfactory_harness/` (evolve), `openharness/` |
+
+Paths are starting points; open each before citing it. Record a factory-pattern row with the same schema as a runtime row; the `Slice` column takes the area name instead of a number.
 
 Paths above are starting points from the plan's exploration, not facts — verify each one exists before citing it.
 
