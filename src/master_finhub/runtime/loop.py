@@ -13,6 +13,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal, Protocol
 
+from master_finhub.tools.secret_scan import redact_secrets
+
 DEFAULT_MAX_STEPS = 20
 UNCERTAIN_RESULT: Final = (
     "Error: interrupted before this call's result was saved; it may or may not have taken "
@@ -214,6 +216,10 @@ class AgentLoop:
         raise ResumeBlocked(call.name, call.id, step)
 
     def _execute(self, call: ToolCall) -> str:
+        """Every tool result, denial and error text passes the secret scan before it is stored."""
+        return redact_secrets(self._run_tool(call))[0]
+
+    def _run_tool(self, call: ToolCall) -> str:
         tool = self._tools.get(call.name)
         if tool is None:
             known = ", ".join(sorted(self._tools)) or "none"

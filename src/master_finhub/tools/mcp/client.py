@@ -29,6 +29,7 @@ from typing import Any, Final, Self
 from master_finhub.runtime.loop import ToolSpec
 from master_finhub.sandbox.stream import scrubbed_env
 from master_finhub.tools.safety import check_command
+from master_finhub.tools.secret_scan import Span, apply_spans, merge_spans, secret_spans
 
 PROTOCOL_VERSION: Final = "2025-06-18"
 SUPPORTED_VERSIONS: Final = frozenset({"2025-06-18", "2025-03-26", "2024-11-05"})
@@ -104,10 +105,15 @@ def public_tool_name(server: str, tool: str) -> str:
     return f"{clean[: PUBLIC_MAX - 13]}_{digest}"
 
 
-def redact(text: str, secrets: Iterable[str]) -> str:
+def redact(text: str, secrets: Iterable[str], *, mcp_shapes: bool = True) -> str:
+    """Known values, SECRET_SHAPES and the secret_scan table, all matched on the original text."""
+    spans: list[Span] = []
     for secret in sorted({s for s in secrets if len(s) >= 4}, key=len, reverse=True):
-        text = text.replace(secret, "[REDACTED]")
-    return SECRET_SHAPES.sub("[REDACTED]", text)
+        spans += ((m.start(), m.end(), "[REDACTED]") for m in re.finditer(re.escape(secret), text))
+    if mcp_shapes:
+        spans += ((m.start(), m.end(), "[REDACTED]") for m in SECRET_SHAPES.finditer(text))
+    spans += ((s, e, f"[REDACTED:{rule}]") for s, e, rule in secret_spans(text))
+    return apply_spans(text, merge_spans(spans))
 
 
 class McpClient:
@@ -354,8 +360,7 @@ class McpClient:
                 parts.append(f"[{item.get('type', 'unknown')} content omitted]")
         text = "\n".join(parts)
         is_error = result.get("isError") is True
-        if is_error:
-            text = redact(text, self._secrets())
+        text = redact(text, self._secrets(), mcp_shapes=is_error)  # values on every result
         return McpResult(text, is_error)
 
     def _require_initialized(self) -> None:
