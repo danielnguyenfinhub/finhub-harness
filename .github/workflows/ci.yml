@@ -7,6 +7,7 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # a quadratic-regex regression would otherwise hang up to the 360 min default
     steps:
       - uses: actions/checkout@v4
         # submodules deliberately not fetched: references/ is for pattern mining only
