@@ -89,6 +89,7 @@ Reusable experts are custom types in `project/.claude/agents/{name}.md`, invoked
 
 - Frontmatter: `name` and `description` required; `tools` to restrict (drop Edit and Write for read-only reviewers; give Edit *and* Write to anything that fixes artefacts); `model` with the reason as a comment.
 - Body: role, working principles with their reasons, input/output rules, error handling, collaboration. Persistent agents (Mode B) add `## Communication rules`; Workflow-only agents (Mode A) add `## Structured output`; one-shot agents (Mode C) need neither — their `## Input and output rules` name the artefact paths they read and write. Skills are wired in the body ("call `/skill-name` with the Skill tool"); there is no `skills:` frontmatter field.
+- Connectors: an agent that cannot do its job without an MCP server or connector gets a `## Required connectors` section in its body, one server per line, written as the segment between `mcp__` and the next `__` in its tool names (`mcp__crm__search` → `crm`). Leave the section out when the agent needs none. Step 5 copies these lines into the orchestrator's preflight table, so a missing connector stops the run before anyone is spawned instead of failing on the agent's first call. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:956 (MIT))
 - QA agents get a type with all tools (`Explore` cannot run scripts), compare shapes across boundaries rather than check existence, and run after every module, not once at the end (`references/qa-agent-guide.md`). Add the mutation spot-check from `references/quality-gates.md` §3 whenever the QA agent judges tests.
 - Model per agent from `references/model-selection-guide.md`: fable only for the layer that plans and runs long; opus for design, generation, judging; sonnet by default.
 
@@ -110,6 +111,7 @@ Every orchestrator contains:
 
 - **Execution mode and target surface** at the top (per phase if mixed). If chat or Cowork is a target, a `## Single-context fallback` section (`references/surfaces.md`).
 - **Step 0 context check**: no `_workspace/` → fresh run; `_workspace/` + partial request → re-run only that agent/phase (pass prior output paths); `_workspace/` + new input → move it to `_workspace_{timestamp}/` and start fresh; Workflow mode → `resumeFromRunId` when `run_meta.json` has one.
+- **Connector preflight** (only when an agent has `## Required connectors`): Step 0 ends with the preflight item from Template A Step 0 in `references/orchestrator-template.md`, holding one agent → connector row per declared line. On Claude Code a missing connector stops the run before any spawn; on chat and Cowork the orchestrator warns and asks instead, because connector listings there are deferred and an absent name is not proof (`references/surfaces.md` §4).
 - **Data hand-off**: structured return (`schema`) in A; return message in C; `SendMessage` and shared tasks in B; files for anything large or auditable, as `_workspace/{phase}_{agent}_{artifact}.{ext}`. Freeze artefacts at phase boundaries in B (template B Step 4).
 - **Error policy**: one retry then proceed and record the gap; never retry quota, auth or permission failures — open the partial artefacts, record what is missing, report; the orchestrator fills a gap only with facts it verified itself, never with a guessed judgement; in Mode A, `.filter(Boolean)` after every `parallel()`/`pipeline()` and `log()` the dropped count.
 - **Scale**: 2-3 persistent agents for small jobs, 3-5 for medium, supervisor + 3-5 for large; Workflow calls from a handful to hundreds, capped by `budget.remaining()` when a budget is set.
@@ -175,6 +177,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - [ ] Run with 2-3 realistic prompts; triggers validated with should and should-not cases.
 - [ ] `CLAUDE.md` holds only the trigger pointer and change history.
 - [ ] Orchestrator Step 0 distinguishes first run, follow-up and partial re-run (and `resumeFromRunId` for Workflow mode).
+- [ ] Every `## Required connectors` line in an agent file has a row in the orchestrator's connector preflight table, and every row has a matching agent line.
 - [ ] Borrowed patterns cited in an Authority List with licence tier; net-new decisions labelled with reason and test.
 - [ ] If the harness builds software: QA runs the repo's real gates after every slice and reports `RESULT:` first.
 

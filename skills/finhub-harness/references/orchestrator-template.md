@@ -49,6 +49,16 @@ In `{custom or built-in}`, write the name of a custom type or a built-in type.
    - Modify only that stage in the script, then resume with `resumeFromRunId`. `agent()` calls whose content
      has not changed return cached results immediately, so the run costs little.
 3. If you run fresh, receive a new `runId` and record it in `_workspace/run_meta.json`.
+4. Connector preflight. Skip this item if the table says "none". Run it before any agent, Workflow, message or task call.
+
+   | Agent | Required connector |
+   |-------|--------------------|
+   | {agent} | {server, as in `mcp__{server}__*`} |
+
+   A connector counts as present when your tool list, deferred listings included, has at least one tool whose name begins with `mcp__{server}__`.
+   - Claude Code: if any row is absent, make no further calls. Reply with one line per absent row: `Missing connector {server} for agent {agent}. Attach or authorise it, then run again. Nothing was started.`
+   - Claude chat or Cowork: an attached connector can stay hidden until its schema is loaded, so absence is not proof. Search for the server name with the tool-search step if there is one. If it is still absent, name it in the same form and ask whether to attach it and continue, continue without it (report that agent's phase as skipped), or stop. Do not stop without asking.
+   - Present means listed, not working. An auth or connection error on the first real call is handled by the error table below; do not retry it. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:956 (MIT))
 
 ### Step 1: Fix the task list (the main agent does this directly)
 
@@ -128,6 +138,7 @@ In `{custom or built-in}`, write the name of a custom type or a built-in type.
 As in Template A, check whether `_workspace/` exists to decide whether to run for the first time, re-run only part of it,
 or run fresh. If you re-run only part of it, put the previous artifact paths in the agent prompt so
 the agent reads and reflects the existing results.
+Then run the connector preflight from Template A Step 0, item 4, before launching any agent.
 
 ### Step 1: Preparation
 1. Analyze the user input to confirm {what needs to be understood}.
@@ -220,6 +231,7 @@ description: "Delegates independent {domain} tasks to sub-agents. Use it when th
 
 ### Step 0: Check existing work
 Check whether `_workspace/` exists to decide whether to run for the first time, re-run only part of it, or run fresh.
+Then run the connector preflight from Template A Step 0, item 4, before spawning any sub-agent.
 
 ### Step 1: Preparation
 Analyze the input and create `_workspace/`.

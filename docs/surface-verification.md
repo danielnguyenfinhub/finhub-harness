@@ -20,6 +20,7 @@ Run in order. Record exactly what happens, including error text. Do not retry a 
 | P4 | `Spawn one sub-agent that replies with the word pong, and show me its reply.` | `pong` from a separate agent, or a clear refusal or error | Lines 63, 93, 101: sub-agent availability and isolation |
 | P5 | Re-run P1 to completion, then read the orchestrator it wrote | Role-labelled sections in ONE context; no unconditional `Agent`, `SendMessage` or `Workflow` calls; "unverified — confirm in that surface" next to any step that depends on a feature P2-P4 did not confirm | The single-context fallback is what the factory promises |
 | P6 | `harness retrospective: the document checker missed a missing signature page` | The `finhub-harness-evolve` skill loads | Companion skill trigger |
+| P7 | Upload a one-agent fixture harness whose agent lists `fixture` under `## Required connectors`, attach no such connector, then send `run the fixture harness` | The orchestrator names `fixture` and the agent, then asks whether to attach, continue without, or stop; it does not stop by itself | `surfaces.md` §4 Connectors row and §6 check 7: on chat and Cowork the preflight warns and asks |
 
 ## Result sheet (fill in, then paste back)
 
@@ -31,6 +32,7 @@ Run in order. Record exactly what happens, including error text. Do not retry a 
 | P4 | 2026-10-03, same chat. Declined: no sub-agent tool exposed, would not simulate a reply. Consistent with P2. | |
 | P5 | | |
 | P6 | | |
+| P7 | | |
 
 Also note: product and plan (for example Claude Pro or a Cowork build), the date, and whether any connector was attached.
 
