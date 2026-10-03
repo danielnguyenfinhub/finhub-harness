@@ -158,3 +158,4 @@ Legend: ✓ available, degraded (works with reduced guarantees), ✗ not availab
 | 4 | No foreign primitives | The fallback section names no sub-agent, `SendMessage`, Task or Workflow call |
 | 5 | No v1 artefacts | `scripts/package-plugin.sh` v1-artefact grep passes |
 | 6 | Packaging matches surface | Code: plugin dir. Cowork: `<name>.plugin` zip. Chat: skill-folder zip with `SKILL.md` at its root |
+| 7 | Connector preflight | Every agent's `## Required connectors` line has a row in the orchestrator's Step 0 preflight table; the Code branch stops before any spawn; the chat/Cowork branch warns and asks and never stops on its own |
