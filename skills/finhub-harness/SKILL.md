@@ -139,7 +139,7 @@ On an initial build the Reason column stays `-`; later rows carry the feedback o
 
 Follow `references/skill-testing-guide.md`.
 
-1. **Files and references**: every agent file in place; every `SKILL.md` has `name` and `description`; cross-referenced names match; nothing was written to `.claude/commands/`; no v1 artefacts (`TeamCreate`, `TeamDelete`, `team_name`, experimental flags); where an Authority List exists, every citation opens to a line that supports the claim.
+1. **Files and references**: run `python3 scripts/lint_harness.py project/.claude` (path relative to this skill's directory) and fix every `ERROR` line; fix each `WARN` line or say in the report why it stays. The lint checks frontmatter, name grammar and that a skill's directory matches its name, non-empty descriptions, that every `subagent_type`/`agentType` names an agent file or a built-in type, that `## Required connectors` lines and the preflight table agree, and v1 artefacts; it exits 1 on any error. Where it cannot run (chat without code execution), check the same list by hand. The lint does not check that nothing was written to `.claude/commands/` or that every Authority List citation opens to a line that supports the claim; check those yourself. (adapted from references/crewai/lib/crewai/src/crewai/skills/validation.py:43 (MIT))
 2. **Per mode**: A — `meta` is a pure literal, no `Date.now()`/`Math.random()`, `parallel()` only where a barrier is needed, `.filter(Boolean)` present, `phase()` titles match `meta.phases`; B — message routes, task dependencies, agent count; C — inputs chain to outputs, parallel calls batched in one message; mixed — mode written per phase and hand-offs unbroken. Chat/Cowork targets — the single-context fallback covers every phase.
 3. **Skill runs**: 2-3 realistic prompts per skill, with-skill vs baseline in parallel, qualitative plus assertion-based grading; fix by principle, not per example; repeat until gains flatten; move repeated helper code into `scripts/`.
 4. **Trigger check**: 10 should-trigger prompts in varied register and 10 near-miss should-not-trigger prompts; check for collisions with existing skills' descriptions.
@@ -167,6 +167,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - [ ] Every needed `SKILL.md` and reference exists under `project/.claude/skills/`.
 - [ ] One orchestrator skill with data hand-off, error policy, test scenarios and a declared target surface; a single-context fallback if chat or Cowork is a target.
 - [ ] Execution mode written (per phase if mixed); no v1 artefacts.
+- [ ] `scripts/lint_harness.py` exits 0 on `project/.claude`, and every `WARN` line is fixed or explained.
 - [ ] `model:` chosen per agent from the task, with the reason as a comment; no blanket top-model setting.
 - [ ] Workflow scripts: `.filter(Boolean)` present, `meta` literal, `parallel()` only for real barriers.
 - [ ] Nothing written to `.claude/commands/`.
