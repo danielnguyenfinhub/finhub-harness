@@ -159,3 +159,4 @@ Legend: ✓ available, degraded (works with reduced guarantees), ✗ not availab
 | 5 | No v1 artefacts | `scripts/package-plugin.sh` v1-artefact grep passes |
 | 6 | Packaging matches surface | Code: plugin dir. Cowork: `<name>.plugin` zip. Chat: skill-folder zip with `SKILL.md` at its root |
 | 7 | Connector preflight | Every agent's `## Required connectors` line has a row in the orchestrator's Step 0 preflight table; the Code branch stops before any spawn; the chat/Cowork branch warns and asks and never stops on its own |
+| 8 | Delegation contract | The Delegation block (`orchestrator-template.md`) is in every section that spawns or messages a worker, and in no Single-context fallback. Code only: chat exposes no sub-agent tool (section 2), Cowork is unverified |
