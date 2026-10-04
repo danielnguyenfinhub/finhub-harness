@@ -367,7 +367,7 @@ def _circular() -> dict[str, Any]:
 
 def _deep() -> dict[str, Any]:
     leaf: Any = 0
-    for _ in range(5000):
+    for _ in range(100_000):  # past the json.dumps recursion limit on 3.10 to 3.13
         leaf = [leaf]
     return {"x": leaf}
 
