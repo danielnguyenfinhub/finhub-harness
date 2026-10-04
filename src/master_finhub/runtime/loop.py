@@ -5,6 +5,9 @@ Control flow ported (idea only, not code) from the MIT-licensed deepseek-harness
 (``ReactLoopAgent.step``, lines ~332-420): call the model; if the assistant message has no
 tool calls the run is completed, otherwise execute the tool calls, append their results and
 loop. Streaming, sessions, hooks and abort handling are intentionally out of scope for slice 1.
+The advisory repeat-call reminder (``repeat_reminder.py``) is adapted from the MIT-licensed
+deepseek-harness
+``references/deepseek_harness/packages/guard/repeat-tool-reminder/src/index.ts:189``.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal, Protocol
 
+from master_finhub.runtime.repeat_reminder import RepeatReminder
 from master_finhub.tools.secret_scan import redact_secrets
 
 DEFAULT_MAX_STEPS = 20
@@ -161,14 +165,17 @@ class AgentLoop:
         self._tools = {t.spec.name: t for t in tools}
         self._specs = [t.spec for t in tools]
         self._max_steps = max_steps
+        self._repeat = RepeatReminder()
 
     def run(self, prompt: str) -> str:
+        self._repeat.reset()  # a new user prompt starts a new chain
         messages = [Message(role="user", content=prompt)]
         self._save(0, messages)
         return self._drive(messages, 0, [])
 
     def resume(self, snapshot: LoopSnapshot, *, in_flight: InFlightPolicy = "stop") -> str:
         """Continue from a saved snapshot. The first save is a claim: see CheckpointStore."""
+        self._repeat.reset()  # the chain is not in the snapshot, so it restarts here
         self._save(snapshot.step, list(snapshot.messages))
         if snapshot.status == "completed":
             return snapshot.messages[-1].content
@@ -216,8 +223,15 @@ class AgentLoop:
         raise ResumeBlocked(call.name, call.id, step)
 
     def _execute(self, call: ToolCall) -> str:
-        """Every tool result, denial and error text passes the secret scan before it is stored."""
-        return redact_secrets(self._run_tool(call))[0]
+        """Every tool result, denial and error text passes the secret scan before it is stored.
+
+        The repeat notice is fixed text appended after the scan, inside the same tool message: a
+        private-key match runs to the end of the text and would swallow it, and the pair stays
+        whole. It is counted before the call runs, so a tool that edits its own arguments in place
+        cannot change the key.
+        """
+        note = self._repeat.observe(call.name, call.arguments)
+        return redact_secrets(self._run_tool(call))[0] + note
 
     def _run_tool(self, call: ToolCall) -> str:
         tool = self._tools.get(call.name)
