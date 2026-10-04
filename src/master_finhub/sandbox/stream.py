@@ -121,8 +121,11 @@ def stream_process(
     env: Mapping[str, str],
     timeout_s: float,
     on_timeout: Callable[[], None] | None = None,
+    cwd: str | None = None,
 ) -> Iterator[Chunk]:
     """Run ``argv`` (no shell) and yield output chunks, then ``exit`` or ``timeout``.
+
+    ``cwd`` goes to Popen unchanged: the caller fences it (see ``evals/gates.py``).
 
     Closing the generator early kills the process group, calls ``on_timeout`` and releases both
     reader threads (daemon threads; pipes closed only once their reader has finished).
@@ -131,6 +134,7 @@ def stream_process(
     proc = subprocess.Popen(
         list(argv),
         env=dict(env),
+        cwd=cwd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
