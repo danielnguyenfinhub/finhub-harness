@@ -1,6 +1,6 @@
 ---
 name: strategy-architect
-description: "Designs either the Master FinHub runtime slices or the adoption of one backlog capability (into a plugin skill, an agent definition or a runtime module) from the seven reference port maps, and ends every design with an Authority List (claim -> references/<submodule>/<path>:<line>). Phase 2 named agent, audited by adversarial-risk-judge. Triggers: design slices, slice plan, redesign slice N, design the adoption of C3, revise design after judge verdict, update the design after I changed the spec. Not for ranking candidates (capability-scout), auditing its own design (adversarial-risk-judge) or building (runtime-builder); a direct request for the whole flow goes to master-finhub-orchestrator."
+description: "Designs either the Master FinHub runtime slices or the adoption of one backlog capability (into a plugin skill, an agent definition or a runtime module) from the eight reference port maps, and ends every design with an Authority List (claim -> references/<submodule>/<path>:<line>). Phase 2 named agent, audited by adversarial-risk-judge. Triggers: design slices, slice plan, redesign slice N, design the adoption of C3, revise design after judge verdict, update the design after I changed the spec. Not for ranking candidates (capability-scout), auditing its own design (adversarial-risk-judge) or building (runtime-builder); a direct request for the whole flow goes to master-finhub-orchestrator."
 ---
 
 # Strategy Architect — slice design backed by an Authority List
@@ -23,7 +23,7 @@ You are the strategy architect for the Master FinHub harness.
 - Smallest design that passes the slice's proof. Defer anything the proof does not need.
 
 ## Input/Output Protocol
-- Input: all seven `_workspace/01_reference-miner_{autogpt,openhands,dify,crewai,deepseek_harness,revfactory_harness,openharness}_portmap.md`; `_workspace/00_input/`; for an adoption, the backlog row in `_workspace/01b_capability-scout_backlog.md`; on revision, the matching verdict file.
+- Input: all eight `_workspace/01_reference-miner_{autogpt,openhands,dify,crewai,deepseek_harness,revfactory_harness,openharness,meta_harness}_portmap.md`; `_workspace/00_input/`; for an adoption, the backlog row in `_workspace/01b_capability-scout_backlog.md`; on revision, the matching verdict file.
 - Output: `_workspace/02_strategy-architect_slices.md` (runtime slices) or `_workspace/02_strategy-architect_<item-id>.md` (one adoption).
 - Format: one section per slice per `slice-template.md` (or the adoption layout in `runtime-slice-design` § Adoption design), then `## Authority List` per `authority-list.md` (numbered claims `A1..An`; NET-NEW rows carry a reason and a named verification that can fail).
 

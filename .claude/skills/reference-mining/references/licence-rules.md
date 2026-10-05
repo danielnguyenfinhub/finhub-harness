@@ -13,6 +13,7 @@ Reference repos are pinned read-only submodules used for pattern mining. Port pa
 | `deepseek_harness` | deepseek-ai/deepseek-harness | MIT | — | adapt |
 | `revfactory_harness` | revfactory/harness | Apache-2.0 | Meta-skill source; installed copy lives at `~/.claude/skills/harness`. | adapt / reference |
 | `openharness` | OpenHarness (upstream org unverified; pinned fork at danielnguyenfinhub/OpenHarness) | MIT (`LICENSE`, "Copyright (c) 2025 OpenHarness Contributors") | Pinned 2026-10-02 at 9b2efd7. Port map: `references/portmaps/openharness-9b2efd7.md` (40 rows). | adapt |
+| `meta_harness` | SaehwanPark/meta-harness | Apache-2.0 (`LICENSE`) | Pinned 2026-10-05 at b6f5431 (v0.8.4). Port map: not yet mined. Attribution line required when adapting. | adapt / reference |
 
 All pins point at forks under `github.com/danielnguyenfinhub`.
 

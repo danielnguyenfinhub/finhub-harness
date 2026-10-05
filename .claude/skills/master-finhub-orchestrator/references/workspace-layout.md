@@ -40,7 +40,7 @@ _workspace/
 
 | Signal | Meaning |
 |---|---|
-| seven `01_*` files exist | Phase 1 complete |
+| eight `01_*` files exist | Phase 1 complete |
 | `01b_capability-scout_backlog.md` exists | Phase 1b complete; waiting on Daniel's pick |
 | verdict totals `REJECTED 0` | Phase 2 complete |
 | `03_boundary-qa_slice{N}.md` starts `RESULT: PASS` | slice N done |
