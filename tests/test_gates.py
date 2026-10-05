@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import shlex
 import shutil
 import signal
@@ -18,6 +19,7 @@ import types
 from pathlib import Path
 from typing import Any, Self
 
+import gate_matrix
 import pytest
 
 from master_finhub.evals import gates as gm
@@ -849,7 +851,8 @@ def test_a_path_under_proc_or_dev_is_refused_with_the_runner_in_another_folder(
     word = _proc_words(sub)[index]
     gate = G(argv=(word, "-c", "echo B > out.txt"), cwd="sub")
     got = plan_gate(gate, Workspace(tmp_path), False)
-    assert isinstance(got, str) and "/proc or /dev" in got and "needle" not in got
+    why = "'..'" if ".." in word.split("/") else "/proc or /dev"
+    assert isinstance(got, str) and why in got and "needle" not in got
     report = run(tmp_path, [gate])
     assert statuses(report) == ["policy-error"] and spy.calls == []
     assert not (sub / "out.txt").exists() and not (tmp_path / "out.txt").exists()
@@ -926,7 +929,8 @@ def test_a_symlink_in_the_gate_folder_that_leads_into_proc_or_dev_is_refused(
         word = "./lnk"
     monkeypatch.chdir(tmp_path)
     got = plan_gate(G(argv=(word, "-c", "a"), cwd="sub"), Workspace(tmp_path), False)
-    assert isinstance(got, str) and "/proc or /dev" in got
+    why = "'..'" if kind == "dotdot-link" else "/proc or /dev"
+    assert isinstance(got, str) and why in got
 
 
 def test_a_path_hit_that_is_a_link_into_proc_is_refused(
@@ -956,7 +960,7 @@ def test_a_link_loop_is_refused_not_followed_forever(tmp_path: Path) -> None:
     (tmp_path / "a").symlink_to("b")
     (tmp_path / "b").symlink_to("a")
     got = plan(tmp_path, argv=("./a",))
-    assert isinstance(got, str) and "/proc or /dev" in got
+    assert isinstance(got, str) and "link loop" in got
 
 
 def test_only_the_executable_word_is_looked_at_for_proc_and_dev(tmp_path: Path) -> None:
@@ -2188,3 +2192,301 @@ def test_a_handler_installed_from_c_is_restored_to_the_default(
         pass
     assert [c[1] for c in calls[:2]] == [gm._raise_exit, gm._raise_exit]
     assert calls[2:] == [(s, signal.SIG_DFL) for s in gm.HANDLED_SIGNALS]
+
+
+# --- the resolution-mismatch matrix, real CLI (round 3c): tests/gate_matrix.py -----------------
+
+
+def _matrix(only: str) -> list[Any]:
+    rows = gate_matrix.ROWS
+    if only == "refused":
+        return [r for r in rows if "limit" not in r[5]]
+    if only == "core":
+        return [r for r in rows if "limit" not in r[5] and r[5].get("core")]
+    return [r for r in rows if "limit" in r[5]]
+
+
+@pytest.mark.parametrize("row", _matrix("refused"), ids=lambda r: r[0])
+def test_matrix_every_row_is_refused_with_the_runner_in_another_folder(row: Any) -> None:
+    """M1: runner cwd B/a/b, --root B. Exit 2, policy-error, nothing spawned, no MARK."""
+    verdict, note = gate_matrix.run_row(row, "M1", SRC, PY)
+    assert verdict == "refused", (row[1], note)
+
+
+@pytest.mark.parametrize("mode", ["M2", "M3"])
+@pytest.mark.parametrize("row", _matrix("core"), ids=lambda r: r[0])
+def test_matrix_core_rows_are_refused_in_every_runner_placement(row: Any, mode: str) -> None:
+    """M2: runner cwd = the gate's cwd. M3: --root elsewhere (B/sub), default gate cwd."""
+    verdict, note = gate_matrix.run_row(row, mode, SRC, PY)
+    assert verdict in ("refused", "n/a"), (row[1], note)
+
+
+@pytest.mark.parametrize("row", _matrix("limit"), ids=lambda r: r[0])
+def test_matrix_documented_limits_really_run_the_marker(row: Any) -> None:
+    """Pinned so the documentation cannot go stale: these are NOT detected, and the child runs it."""
+    verdict, note = gate_matrix.run_row(row, "M1", SRC, PY)
+    assert verdict == "MARK", (row[1], note)
+
+
+def test_the_d1_repro_exactly_as_qa_reported_it(tmp_path: Path) -> None:
+    """A `..` after a link to /proc/self/cwd: gate folder `sub` holds lnk -> /proc/self/cwd, its parent
+    holds mysh -> a shell; runner in D/a/b, --root D. Before the fix the child ran the shell."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "a" / "b").mkdir(parents=True)
+    fake = tmp_path / "bin" / "bash"
+    fake.parent.mkdir()
+    fake.write_text(gate_matrix.FAKE)
+    fake.chmod(0o755)
+    (tmp_path / "sub" / "lnk").symlink_to("/proc/self/cwd")
+    (tmp_path / "mysh").symlink_to("bin/bash")
+    gf = write(
+        tmp_path, doc({"id": "a", "argv": ["lnk/../mysh", "-c", "touch MARK"], "cwd": "sub"})
+    )
+    proc = cli(str(gf), "--root", str(tmp_path), cwd=tmp_path / "a" / "b")
+    assert proc.returncode == 2 and json.loads(proc.stdout)["gates"][0]["status"] == "policy-error"
+    assert "'..'" in json.loads(proc.stdout)["gates"][0]["message"]
+    assert not list(tmp_path.rglob("MARK"))
+
+
+@pytest.mark.parametrize(
+    "word", ["../x", "a/../b", "./a/..", "..", "x/..", "/usr/../bin/tool", "d/../d"]
+)
+def test_any_dotdot_component_in_the_executable_is_refused_before_any_normalisation(
+    tmp_path: Path, word: str
+) -> None:
+    """The cost of the root-cause rule: even a harmless `..` is refused (use the path without it)."""
+    got = plan(tmp_path, argv=(word, "-c", "x"))
+    assert isinstance(got, str) and "'..'" in got and word not in got.replace("'..'", "")
+
+
+def test_dotdot_is_refused_in_a_path_entry_that_the_search_reaches_not_in_one_after_the_hit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "d1").mkdir()
+    tool = tmp_path / "d1" / "mytool"
+    tool.write_text("#!/bin/sh\nexit 0\n")
+    tool.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path / 'd1'}:{tmp_path}/x/..")  # the hit is found first: fine
+    assert isinstance(plan(tmp_path, argv=("mytool",)), Plan)
+    monkeypatch.setenv(
+        "PATH", f"{tmp_path}/x/..:{tmp_path / 'd1'}"
+    )  # reached before the hit: refused
+    got = plan(tmp_path, argv=("mytool",))
+    assert isinstance(got, str) and "'..'" in got
+
+
+def test_arguments_and_python_bodies_and_declared_shell_gates_keep_their_dotdot(
+    tmp_path: Path,
+) -> None:
+    assert isinstance(plan(tmp_path, argv=("python", "-c", "import os; os.listdir('..')")), Plan)
+    assert isinstance(plan(tmp_path, argv=("cat", "../x", "a/../b")), Plan)
+    got = plan(tmp_path, command="cat ../x | wc", shell=True, allow_shell=True)
+    assert isinstance(got, Plan)
+
+
+def test_an_unreadable_link_or_any_os_error_while_resolving_is_a_refusal_not_a_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "mysh").symlink_to("bin/bash")
+
+    def boom(path: Any) -> str:
+        raise OSError(13, "denied")
+
+    monkeypatch.setattr(gm.os, "readlink", boom)
+    got = plan(tmp_path, argv=("./mysh", "-c", "x"))
+    assert isinstance(got, str) and "could not be examined" in got
+
+
+def test_the_root_names_are_matched_whole_so_a_sibling_folder_is_not_inside_them(
+    tmp_path: Path,
+) -> None:
+    """Pinned behaviour (QA Q25): /developer/x and /procfs/x are NOT under /dev or /proc."""
+    for word in ["/developer/tool", "/devices/x", "/procfs/x", "/process/x", "/devx"]:
+        got = plan(tmp_path, argv=(word,))
+        assert not (isinstance(got, str) and "/proc or /dev" in got), word
+    for word in [
+        "/dev",
+        "/proc",
+        "/dev/null",
+        "//dev/null",
+        "//proc/self/cwd/x",
+        "/dev//null",
+        "/./dev/null",
+    ]:
+        got = plan(tmp_path, argv=(word,))
+        assert isinstance(got, str) and "/proc or /dev" in got, word
+
+
+@pytest.mark.parametrize("ch", list(";&|`$<>"), ids=lambda c: repr(c))
+def test_a_metacharacter_as_the_first_character_is_refused_too(tmp_path: Path, ch: str) -> None:
+    """QA Q42: the scan must cover index 0 (`;true`, `$HOME/x`, `|x`). A leading newline or carriage
+    return is stripped with the other outer whitespace, so it is not a first character."""
+    got = plan(tmp_path, command=f"{ch}true")
+    assert isinstance(got, str) and "metacharacters" in got
+
+
+def test_a_relative_link_target_is_resolved_from_the_links_own_folder(tmp_path: Path) -> None:
+    """l -> proc/tool means <folder of l>/proc/tool, not /proc/tool: a harmless tool is accepted."""
+    (tmp_path / "proc").mkdir()
+    tool = tmp_path / "proc" / "tool"
+    tool.write_text("#!/bin/sh\nexit 0\n")
+    tool.chmod(0o755)
+    (tmp_path / "l").symlink_to("proc/tool")
+    assert isinstance(plan(tmp_path, argv=("./l",)), Plan)
+    (tmp_path / "m").symlink_to(
+        "proc/self/cwd"
+    )  # no such folder here: nothing under /proc is entered
+    assert isinstance(plan(tmp_path, argv=("./m/tool",)), Plan)
+
+
+def test_a_dotdot_inside_a_link_target_is_applied_to_the_folder_reached_so_far(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The word has no `..`, but a link's target may: it is walked physically (the parent of the folder
+    reached, links already resolved), so `lnk/../mysh` inside a target cannot hide a link to /proc.
+    """
+    run_dir, sub = tmp_path / "run", tmp_path / "sub"
+    run_dir.mkdir()
+    sub.mkdir()
+    (sub / "lnk").symlink_to("/proc/self/cwd")
+    (sub / "m2").symlink_to("lnk/../mysh")
+    (sub / "m3").symlink_to("../" * 30 + "proc/self/cwd/mysh")
+    (sub / "up").symlink_to("../" * 30)
+    monkeypatch.chdir(run_dir)
+    for word in ["./m2", "./m3", "up/proc/self/cwd/mysh", "up/dev/null"]:
+        got = plan_gate(G(argv=(word, "-c", "x"), cwd="sub"), Workspace(tmp_path), False)
+        assert isinstance(got, str) and "/proc or /dev" in got, word
+
+
+def test_a_harmless_dotdot_inside_a_link_target_is_followed_not_refused(tmp_path: Path) -> None:
+    """The `..` rule is for the executable WORD; a link's own target may use `..` and is resolved."""
+    (tmp_path / "x").mkdir()
+    (tmp_path / "y").mkdir()
+    tool = tmp_path / "y" / "tool"
+    tool.write_text("#!/bin/sh\nexit 0\n")
+    tool.chmod(0o755)
+    (tmp_path / "l").symlink_to("../" + tmp_path.name + "/x/../y/tool")
+    assert isinstance(plan(tmp_path, argv=("./l",)), Plan)
+    assert gm._walk(str(tmp_path / "l")) == str(tool)
+    assert gm._walk("/") == "/" and gm._walk("/a/b/c") == "/a/b/c"
+
+
+def test_a_path_hit_that_is_a_link_into_proc_is_refused_when_the_runner_lacks_the_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The runner's /proc/self/cwd has no `mysh`, so `isfile` there says no and the search would go on,
+    while the child opens ITS cwd and finds the shell: the hit is walked before it is tested."""
+    run_dir, sub = tmp_path / "run", tmp_path / "sub"
+    run_dir.mkdir()
+    sub.mkdir()
+    (sub / "mytool").symlink_to("/proc/self/cwd/mysh")
+    monkeypatch.chdir(run_dir)
+    monkeypatch.setenv("PATH", str(sub))
+    got = plan_gate(G(argv=("mytool", "-c", "a"), cwd="sub"), Workspace(tmp_path), False)
+    assert isinstance(got, str) and "/proc or /dev" in got
+
+
+_FUZZ_NAMES = ["l1", "l2", "l3", "mysh", "d", "e"]
+_FUZZ_TOK = _FUZZ_NAMES + ["lnk", "up", "mysh2", "z", "m3", "q", "..", "..", ".", "sub", "bin"]
+_FUZZ_TOK += ["bash", "x", "y", "", "proc", "self", "cwd", "root", "dev", "fd"]
+
+
+def _fuzz_layout(rnd: random.Random, base: Path) -> None:
+    def toks(k: int) -> str:
+        return "/".join(rnd.choice(_FUZZ_TOK) for _ in range(k))
+
+    links = [
+        ("sub/lnk", rnd.choice(["/proc/self/cwd", "/proc/thread-self/cwd", f"/proc/self/root{base}/sub",
+                                "../" * 12 + "proc/self/cwd", ".", "/proc/self/cwd/.", "/proc/self/cwd/../sub"])),
+        ("sub/up", rnd.choice(["..", "../", "../.", "../sub/..", "../x/.."])),
+        ("sub/d", rnd.choice(["../bin", f"{base}/bin", "../x/../bin", "up/bin"])),
+        ("mysh", rnd.choice(["bin/bash", "./bin/bash", f"{base}/bin/bash"])),
+        ("sub/mysh2", rnd.choice(["../bin/bash", "d/bash", "../mysh", "lnk/../mysh"])),
+        ("x/y/z", rnd.choice(["../../bin", "../../mysh", "../../sub/lnk", "../../sub/up"])),
+        ("bin/m3", rnd.choice(["bash", "./bash", "../mysh", "../sub/mysh2"])),
+        ("x/q", rnd.choice(["y/z", "y/z/bash", "../mysh"])),
+    ]  # fmt: skip
+    for rel, target in links:
+        if rnd.random() < 0.8:
+            (base / rel).symlink_to(target)
+    for _ in range(rnd.randint(0, 2)):  # random extra links, some into /proc and /dev
+        where = base / rnd.choice(["", "sub", "bin", "x", "x/y"]) / rnd.choice(_FUZZ_NAMES)
+        if not where.is_symlink() and not where.exists():
+            kind = rnd.random()
+            if kind < 0.3:
+                target = rnd.choice(
+                    ["/proc/self/cwd", "/proc/self/root", "/dev", "/dev/fd", "/proc"]
+                )
+                target += "/" + toks(rnd.randint(0, 3))
+            elif kind < 0.6:
+                target = "../" * rnd.randint(1, 14) + toks(rnd.randint(0, 3))
+            else:
+                target = toks(rnd.randint(1, 4))
+            where.symlink_to(target or "bin/bash")
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_differential_fuzz_the_kernel_resolution_versus_the_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seed: int
+) -> None:
+    """Truth: this process with its cwd set to the gate's cwd stats the word (what the child's exec
+    resolves; /proc/self/cwd is then the gate's folder). Plan: `_shell_refusal` with the process cwd in
+    another folder (the runner). If the kernel reaches the test-made `bash`, the plan must refuse.
+    Random links (to /proc, /dev, `..` chains, absolute and relative) and random words."""
+    rnd = random.Random(seed)
+    reached = 0
+    wrong: list[Any] = []
+    for n in range(150):
+        base = (tmp_path / f"L{n}").resolve()
+        for d in ["bin", "sub", "a/b", "x/y"]:
+            (base / d).mkdir(parents=True)
+        bash = base / "bin" / "bash"
+        bash.write_text(gate_matrix.FAKE)
+        bash.chmod(0o755)
+        want = (bash.stat().st_dev, bash.stat().st_ino)
+        _fuzz_layout(rnd, base)
+        for _ in range(40):
+            if rnd.random() < 0.25:
+                word = rnd.choice([*_FUZZ_NAMES, "bash", "mysh2", "m3", "lnk"])
+                entries = ["", ".", "sub", "bin", "x", f"{base}/sub", f"{base}/x/y", f"{base}/bin"]
+                entries += ["/proc/self/cwd", "d", "e", "l1", "l2"]
+                path: str | None = ":".join(rnd.choice(entries) for _ in range(rnd.randint(1, 3)))
+            else:
+                pre = rnd.choice(
+                    ["", "./", f"{base}/", "/proc/self/cwd/", "sub/", "../", "/", "//", "bin/"]
+                )
+                tail = [rnd.choice([*_FUZZ_NAMES, "bash", "mysh", "mysh2", "m3", "z", "q"])]
+                word = pre + "/".join(
+                    [rnd.choice(_FUZZ_TOK) for _ in range(rnd.randint(0, 4))] + tail
+                )
+                path = None
+            if not word or word.startswith("-") or "=" in word or word.endswith("/"):
+                continue
+            if "/" not in word and path is None:
+                path = os.environ["PATH"]
+            monkeypatch.chdir(base / "sub")
+            hit = None
+            if path is None:
+                hit = word
+            else:
+                for entry in path.split(":"):
+                    cand = os.path.join(entry, word)
+                    if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                        hit = cand
+                        break
+            try:
+                st = os.stat(hit) if hit is not None else None
+            except OSError:
+                st = None
+            monkeypatch.chdir(base / "a" / "b")
+            if path is not None:
+                monkeypatch.setenv("PATH", path)
+            got = gm._shell_refusal((word,), base / "sub")
+            monkeypatch.undo()
+            if st is not None and (st.st_dev, st.st_ino) == want:
+                reached += 1
+                if got is None:
+                    wrong.append((word, path))
+        shutil.rmtree(base)
+    assert reached >= 40, reached  # the generator really builds routes to the shell
+    assert not wrong, wrong[:3]

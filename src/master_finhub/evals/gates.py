@@ -12,7 +12,10 @@ What is and is not controlled. This module starts /bin/sh itself only for a gate
 itself. In a non-shell gate a shell as the executable (sh, bash, dash, ...), or a symlink to one
 reached by an absolute path, a cwd-relative path or PATH (resolved from the gate's folder), su,
 watch, or a wrapper handed a shell (env sh, xargs sh, find -exec sh, ...) is refused; so is any
-executable under /proc or /dev, which the runner and the child resolve differently. That is a
+executable under /proc or /dev, which the runner and the child resolve differently, and any
+executable word or examined PATH entry with a '..' component (checked on the raw text: after a link
+it names a different file than a lexical fold does). The path is resolved one component at a time,
+physically, with no normalisation. That is a
 speed bump that catches common accidents, NOT a sandbox: each audit round found another
 path-resolution mismatch of the same class, and others may exist. NOT detected: wrappers not on
 the list, wrapper chains, interpreters (``python -c``, ``perl -e``, ``awk``, ``node -e``), make,
@@ -266,62 +269,78 @@ def _base(word: str) -> str:
     return name.removesuffix(".exe")
 
 
-class _Opaque(Exception):
-    """The executable's path goes through /proc or /dev, where the runner and the child see
-    different things (/proc/self/cwd, /proc/self/fd/N, /dev/fd/N, /dev/stdin): refused outright."""
+class _Refused(Exception):
+    """The executable's path cannot be resolved the way the child will: the message is the reason."""
+
+
+OPAQUE_MSG: Final = (
+    "the executable is under /proc or /dev, which the runner and the child resolve differently"
+)
+DOTDOT_MSG: Final = (
+    "the executable path has a '..' component, which a link on the way makes ambiguous"
+)
+LOOP_MSG: Final = "the executable path has a link loop or more than 40 links"
 
 
 def _opaque(path: str) -> bool:
-    p = "/" + os.path.normpath(path).lstrip("/")  # normpath keeps a leading "//"
-    return any(p == root or p.startswith(root + "/") for root in OPAQUE_ROOTS)
+    return any(path == root or path.startswith(root + "/") for root in OPAQUE_ROOTS)
 
 
-def _link_into_opaque(path: str, hops: int = 0) -> bool:
-    """True when a symlink met on the way (any component, text read with readlink, not followed
-    through /proc) leads into /proc or /dev. Fails closed on a loop or more than 40 hops."""
-    if hops > 40:
-        return True
-    p = os.path.normpath(path)
-    parts, cur = p.split("/"), "/"
-    for i, part in enumerate(parts):
-        if not part:
+def _no_dotdot(path: str) -> None:
+    """Checked on the RAW text, before any normalisation: a lexical ``..`` after a symlink names a
+    different file than the kernel's (the link's target's parent), so it is refused, not folded."""
+    if ".." in path.split("/"):
+        raise _Refused(DOTDOT_MSG)
+
+
+def _walk(path: str) -> str:
+    """Resolve the absolute ``path`` one component at a time, physically, like the kernel, WITHOUT
+    following anything under /proc or /dev (the runner and the child see different things there):
+    entering either raises _Refused. Returns the resolved path. ``path`` itself has no ``..`` (the
+    word is refused first); one can come from a link's target, and is applied to the folder
+    reached so far, which holds no link and no ``..``, so its parent is exact."""
+    todo = path.split("/")[::-1]
+    cur, links = "/", 0
+    while todo:
+        part = todo.pop()
+        if part in ("", "."):
             continue
-        cur = os.path.join(cur, part)
-        if os.path.islink(cur):
-            target = os.path.join(os.path.dirname(cur), os.readlink(cur))
-            rest = "/".join(parts[i + 1 :])
-            nxt = os.path.join(target, rest) if rest else target
-            return _opaque(nxt) or _link_into_opaque(nxt, hops + 1)
-    return False
-
-
-def _checked_real(path: str) -> str:
-    """realpath of ``path`` after the /proc and /dev checks, run BEFORE the resolution: realpath
-    inside the runner would expand /proc/self to the runner's own folders."""
-    if _opaque(path) or _link_into_opaque(path):
-        raise _Opaque
-    real = os.path.realpath(path)
-    if _opaque(real):
-        raise _Opaque
-    return real
+        if part == "..":
+            cur = os.path.dirname(cur)  # "/" stays "/", as in the kernel
+            continue
+        nxt = os.path.join(cur, part)
+        if _opaque(nxt):
+            raise _Refused(OPAQUE_MSG)
+        if os.path.islink(nxt):
+            links += 1
+            if links > 40:
+                raise _Refused(LOOP_MSG)
+            target = os.readlink(nxt)
+            if target.startswith("/"):
+                cur = "/"
+            todo.extend(target.split("/")[::-1])  # a relative target starts from the link's folder
+            continue
+        cur = nxt
+    return cur
 
 
 def _resolve(word: str, cwd: Path) -> str | None:
     """Where the child's exec will find ``word``. The child starts in ``cwd`` (the gate's folder,
     not the runner's), so a path with a "/" is joined onto it, and a bare name is searched along
     PATH the way Popen does: first entry holding an executable file, an empty or relative entry
-    meaning ``cwd``. A path, a link on the way or a PATH entry under /proc or /dev raises _Opaque.
+    meaning ``cwd``. A ``..`` component (in the word or an examined PATH entry), and anything under
+    /proc or /dev (also reached through a link), raises _Refused before any normalisation.
     Not looked at: a file created or swapped after this check (an earlier gate), and an earlier
     PATH file that exec skips for another reason (no shebang, a missing interpreter)."""
+    _no_dotdot(word)
     if "/" in word:
-        return _checked_real(os.path.join(cwd, word))
+        return _walk(os.path.join(cwd, word))
     for entry in os.get_exec_path():
-        base = os.path.join(cwd, entry)
-        if _opaque(base) or _link_into_opaque(base):
-            raise _Opaque
-        candidate = os.path.join(base, word)
+        _no_dotdot(entry)
+        base = _walk(os.path.join(cwd, entry))
+        candidate = _walk(os.path.join(base, word))  # a hit that is a link into /proc is refused
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            return _checked_real(candidate)
+            return candidate
     return None
 
 
@@ -335,10 +354,10 @@ def _shell_refusal(argv: Sequence[str], cwd: Path) -> str | None:
         found = _resolve(argv[0], cwd)
         if found:
             names.add(_base(found))
-    except _Opaque:
-        return "the executable is under /proc or /dev, which the runner and the child resolve differently"
-    except (OSError, ValueError):
-        pass
+    except _Refused as exc:
+        return str(exc)
+    except (OSError, ValueError):  # fail closed: a path that cannot be examined is not a pass
+        return "the executable path could not be examined"
     if names & SHELL_NAMES or first in SHELL_RUNNERS:
         return "the executable is a shell; declare shell: true and pass --allow-shell"
     if first in WRAPPERS and any(_base(a) in SHELL_NAMES for a in argv[1:]):
