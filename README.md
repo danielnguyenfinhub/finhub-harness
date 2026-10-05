@@ -54,7 +54,7 @@ Run the CLI with `master-finhub` (entry point `master_finhub.cli:main`).
 
 ## Reference repos and licences
 
-Seven reference harnesses are pinned as read-only submodules under `references/` (`git submodule update --init --depth 1` to fetch them). Port patterns, do not copy files, unless the row allows it. `references/LICENSES.md` is the source of truth.
+Eight reference harnesses are pinned as read-only submodules under `references/` (`git submodule update --init --depth 1` to fetch them). Port patterns, do not copy files, unless the row allows it. `references/LICENSES.md` is the source of truth.
 
 | Submodule | Licence | Rule |
 | --- | --- | --- |

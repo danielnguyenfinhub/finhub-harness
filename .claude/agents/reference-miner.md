@@ -32,5 +32,5 @@ You are the reference miner for the Master FinHub harness.
 
 ## Collaboration
 - Upstream: master-finhub-orchestrator (Phase 1) assigns the submodule.
-- Downstream: capability-scout ranks the rows of all seven maps into a backlog; strategy-architect cites their `path:line` rows in its Authority List; adversarial-risk-judge re-opens those same lines, so a wrong line number here becomes a REJECTED claim later.
+- Downstream: capability-scout ranks the rows of all eight maps into a backlog; strategy-architect cites their `path:line` rows in its Authority List; adversarial-risk-judge re-opens those same lines, so a wrong line number here becomes a REJECTED claim later.
 - No direct messaging with other agents — sub-agent mode, file hand-off only.

@@ -26,8 +26,8 @@ for d in $S/*/; do
   chk "skill frontmatter $n" grep -q "^name: $n\$" "$d/SKILL.md"
 done
 
-# 3. seven miner submodules named in the orchestrator (the phase table uses {submodule})
-for m in autogpt openhands dify crewai deepseek_harness revfactory_harness openharness; do
+# 3. eight miner submodules named in the orchestrator (the phase table uses {submodule})
+for m in autogpt openhands dify crewai deepseek_harness revfactory_harness openharness meta_harness; do
   chk "miner $m in orchestrator" all "$m" $O
 done
 

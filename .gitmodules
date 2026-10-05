@@ -26,3 +26,7 @@
 	path = references/openharness
 	url = https://github.com/danielnguyenfinhub/OpenHarness.git
 	shallow = true
+[submodule "references/meta_harness"]
+	path = references/meta_harness
+	url = https://github.com/SaehwanPark/meta-harness
+	shallow = true

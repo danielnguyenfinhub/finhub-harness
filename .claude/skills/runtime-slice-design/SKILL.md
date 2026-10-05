@@ -5,7 +5,7 @@ description: "Designs buildable slices of the Master FinHub Python runtime (agen
 
 # Runtime Slice Design
 
-Turn the seven port maps into an ordered set of small, independently provable slices, or one backlog row into one provable adoption. Each slice must be buildable in one builder call and verifiable by four commands; anything bigger hides failures.
+Turn the eight port maps into an ordered set of small, independently provable slices, or one backlog row into one provable adoption. Each slice must be buildable in one builder call and verifiable by four commands; anything bigger hides failures.
 
 ## Steps
 

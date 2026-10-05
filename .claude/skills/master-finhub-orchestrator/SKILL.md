@@ -1,20 +1,20 @@
 ---
 name: master-finhub-orchestrator
-description: "Master FinHub harness orchestrator (하이브리드). Runs the six-agent team that mines the seven pinned reference repos, ranks their capabilities into a backlog, designs runtime slices or one backlog adoption with an adversarially audited Authority List, then builds and verifies it (runtime under src/master_finhub/, or the finhub-harness plugin) one design at a time. ALWAYS use when Daniel says: build the master finhub runtime, run the finhub harness, capability backlog, pick the best capabilities, what should we adopt next, adopt X from Y, build C3, build slice N, port compaction/loop/sandbox from deepseek/dify/crewai/openharness, re-run the judge/builder/scout/slice N, partial re-run, improve the previous build, update after I changed the spec. NOT for Mercury CRM, loan documents, video or marketing, not for building a harness for another domain (finhub-harness skill), not for retrospectives (finhub-harness-evolve), not for creating MCP servers."
+description: "Master FinHub harness orchestrator (하이브리드). Runs the six-agent team that mines the eight pinned reference repos, ranks their capabilities into a backlog, designs runtime slices or one backlog adoption with an adversarially audited Authority List, then builds and verifies it (runtime under src/master_finhub/, or the finhub-harness plugin) one design at a time. ALWAYS use when Daniel says: build the master finhub runtime, run the finhub harness, capability backlog, pick the best capabilities, what should we adopt next, adopt X from Y, build C3, build slice N, port compaction/loop/sandbox from deepseek/dify/crewai/openharness, re-run the judge/builder/scout/slice N, partial re-run, improve the previous build, update after I changed the spec. NOT for Mercury CRM, loan documents, video or marketing, not for building a harness for another domain (finhub-harness skill), not for retrospectives (finhub-harness-evolve), not for creating MCP servers."
 ---
 
 # Master FinHub Orchestrator
 
 Coordinates reference-miner, capability-scout, strategy-architect, adversarial-risk-judge, runtime-builder and boundary-qa. Target surface: Claude Code only (the team uses `Agent`, named agents and `SendMessage`; there is no chat or Cowork fallback for this orchestrator). Why hybrid: mining, ranking and building are independent and verifiable by commands (sub-agents are cheaper and isolated), while design-vs-audit needs a real back-and-forth (a named architect resumed with SendMessage, audited by a fresh judge each round).
 
-Two goals share this team. **Runtime build**: design and build the Python runtime slices (Phase 1 → 2 → 3 → 4). **Capability adoption**: learn from the seven reference repos, rank what is worth adopting, and build the picked items into the plugin or the runtime (Phase 1 → 1b → stop for Daniel's pick → 2 → 3 per item → 4). Phase 0 decides which goal the request is.
+Two goals share this team. **Runtime build**: design and build the Python runtime slices (Phase 1 → 2 → 3 → 4). **Capability adoption**: learn from the eight reference repos, rank what is worth adopting, and build the picked items into the plugin or the runtime (Phase 1 → 1b → stop for Daniel's pick → 2 → 3 per item → 4). Phase 0 decides which goal the request is.
 
 ## 실행 모드: 하이브리드
 
 | Phase | 모드 | 이유 |
 |-------|------|------|
 | Phase 0 (context check) | 없음 | Decide goal and initial / partial re-run / new run before spending tokens |
-| Phase 1 (reference mining) | 서브 에이전트 | Seven independent read-only sweeps, no inter-agent talk needed |
+| Phase 1 (reference mining) | 서브 에이전트 | Eight independent read-only sweeps, no inter-agent talk needed |
 | Phase 1b (capability ranking) | 서브 에이전트 | One scout reads all maps once and writes the backlog; Daniel picks |
 | Phase 2 (strategy + risk debate) | 에이전트 팀 | Architect and judge iterate via SendMessage until 0 REJECTED |
 | Phase 3 (build) | 서브 에이전트 | One builder then one QA per slice or item; each is self-contained |
@@ -26,8 +26,8 @@ Full per-phase inputs/outputs: `references/phase-table.md`. Workspace file namin
 
 | 팀원 | 에이전트 타입 | 역할 | 스킬 | 출력 |
 |------|-------------|------|------|------|
-| reference-miner ×7 | Explore (sonnet) | Port map for one submodule | reference-mining | `_workspace/01_reference-miner_{submodule}_portmap.md` |
-| capability-scout | capability-scout (opus) | Ranked adoption backlog from all seven maps | capability-triage | `_workspace/01b_capability-scout_backlog.md` |
+| reference-miner ×8 | Explore (sonnet) | Port map for one submodule | reference-mining | `_workspace/01_reference-miner_{submodule}_portmap.md` |
+| capability-scout | capability-scout (opus) | Ranked adoption backlog from all eight maps | capability-triage | `_workspace/01b_capability-scout_backlog.md` |
 | strategy-architect | strategy-architect (opus) | Slice design or one adoption design + Authority List | runtime-slice-design | `_workspace/02_strategy-architect_slices.md` or `_02_strategy-architect_<item>.md` |
 | adversarial-risk-judge | adversarial-risk-judge (opus) | Fresh-context audit of Authority List | adversarial-audit | `_workspace/02_adversarial-risk-judge_verdict.md` or `..._<item>_r<k>.md` |
 | runtime-builder | general-purpose (sonnet) | Build one slice or one adoption, gates per target | runtime-slice-design (+ finhub-build-discipline, superpowers:test-driven-development) | `src/`, `tests/` or `skills/`, `.claude/`; `_workspace/03_runtime-builder_{slice{N}\|<item>}.md` |
@@ -53,7 +53,7 @@ State which path you chose and why in one line before continuing.
 
 Before spawning, decide per submodule whether to reuse: a prior `01_*_portmap.md` is reused only when its header SHA equals `git submodule status` for that path **and** its scope covers this run's `scope:` line (a map mined for runtime slices 8-11 does not cover a `both` run). Otherwise mine again, passing the prior map as "prior output exists" so unchanged rows are kept.
 
-In ONE message, issue up to seven `Agent` calls in parallel, one per submodule to mine (`autogpt`, `openhands`, `dify`, `crewai`, `deepseek_harness`, `revfactory_harness`, `openharness`), each prompt carrying the `scope:` line:
+In ONE message, issue up to eight `Agent` calls in parallel, one per submodule to mine (`autogpt`, `openhands`, `dify`, `crewai`, `deepseek_harness`, `revfactory_harness`, `openharness`, `meta_harness`), each prompt carrying the `scope:` line:
 
 ```
 Agent(
@@ -79,7 +79,7 @@ Agent(
   model: "opus",
   run_in_background: true,
   prompt: "You are capability-scout. Read .claude/agents/capability-scout.md first.
-    Rank all seven _workspace/01_*_portmap.md into _workspace/01b_capability-scout_backlog.md
+    Rank all eight _workspace/01_*_portmap.md into _workspace/01b_capability-scout_backlog.md
     per the capability-triage skill. Request: _workspace/00_input/request.md."
 )
 ```
@@ -98,7 +98,7 @@ Pick rules, applied before Phase 2 starts:
 
 There is no team-create/team-delete tool in v2. Named agents launched in this session form the collaboration group automatically, and `SendMessage` resumes an agent with its context intact. The judge must audit in a **fresh context**, so it is launched anew for each round rather than resumed.
 
-1. `Agent(name: "strategy-architect", subagent_type: "strategy-architect", model: "opus", run_in_background: false)` — runtime goal: read all seven `01_*_portmap.md` and the built code, write `02_strategy-architect_slices.md`; adoption goal: read the picked row of `01b_capability-scout_backlog.md`, re-open its port-map rows and the real code it touches, write `02_strategy-architect_<item>.md` per `runtime-slice-design` § Adoption design. Both end with the Authority List.
+1. `Agent(name: "strategy-architect", subagent_type: "strategy-architect", model: "opus", run_in_background: false)` — runtime goal: read all eight `01_*_portmap.md` and the built code, write `02_strategy-architect_slices.md`; adoption goal: read the picked row of `01b_capability-scout_backlog.md`, re-open its port-map rows and the real code it touches, write `02_strategy-architect_<item>.md` per `runtime-slice-design` § Adoption design. Both end with the Authority List.
 2. `Agent(subagent_type: "adversarial-risk-judge", model: "opus")` with **no name** and a prompt that names the design file and limits it to that file plus the cited `references/` lines and read-only simulation outside the repo — write the verdict (`02_adversarial-risk-judge_verdict.md`, or `..._<item>_r<k>.md` per round), totals line first.
 3. If the totals show `REJECTED > 0`: `SendMessage({to: "strategy-architect"})` with the rejected claim ids and the judge's exact fixes, telling it to re-verify each by simulation and dispute with evidence if it disagrees; the architect revises in place. Then launch a **new** judge (fresh context, prior verdict paths passed as "prior output exists") for the next round. Max 3 rounds; if round 3 still has REJECTED > 0, stop and escalate to Daniel with the rejected claims side by side and both positions. Daniel may authorise further rounds one at a time; put `Extra round authorised by Daniel: <date>` in that round's launch prompt so the judge copies it into the verdict header.
 4. Confirm both 02 files are saved in `_workspace/`.
@@ -163,7 +163,7 @@ Relay to Daniel: built / passed / gaps / one NEXT step, in plain English. Do not
 
 ```
 _workspace/00_input/request.md (+ scope: line)
-   └─► Phase 1 (×7, parallel) ─► 01_reference-miner_{submodule}_portmap.md ×7
+   └─► Phase 1 (×8, parallel) ─► 01_reference-miner_{submodule}_portmap.md ×8
          ├─► [adoption] Phase 1b ─► 01b_capability-scout_backlog.md ─► STOP: Daniel picks <item>
          └─► Phase 2 agents ─► 02_strategy-architect_{slices|<item>}.md ◄─SendMessage─► 02_adversarial-risk-judge_{verdict|<item>_r<k>}.md
                └─► Phase 3 per slice or item ─► src/**, tests/**  or  skills/**, .claude/**, docs/**
@@ -172,7 +172,7 @@ _workspace/00_input/request.md (+ scope: line)
                            └─► Phase 4 ─► 04_boundary-qa_report.md
 ```
 
-Scout reads all seven maps and the repo inventory, never the reference code. Judge reads only the design file + cited `references/` lines. Builder reads the design and its clean verdict. QA reads the design + builder report + the targeted files.
+Scout reads all eight maps and the repo inventory, never the reference code. Judge reads only the design file + cited `references/` lines. Builder reads the design and its clean verdict. QA reads the design + builder report + the targeted files.
 
 ## 에러 핸들링
 
@@ -192,14 +192,14 @@ Scout reads all seven maps and the repo inventory, never the reference code. Jud
 
 ### 정상 흐름
 1. Daniel: "build the master finhub runtime". No `_workspace/` → initial run.
-2. Phase 1: seven Explore agents return; seven `01_*_portmap.md` files written.
+2. Phase 1: eight Explore agents return; eight `01_*_portmap.md` files written.
 3. Phase 2: named architect writes slices + Authority List; a fresh unnamed judge rejects 2 claims in round 1; `SendMessage` to the architect, it revises; a new judge's round 2 totals `REJECTED 0`; no teardown.
 4. Phase 3: slice 1 build → QA PASS (`python -m master_finhub.cli "echo hi"` prints `hi`); slices 2 and 3 likewise.
 5. Phase 4: `04_boundary-qa_report.md` lists 3 slices built, all four commands exit 0, gaps = slices 4–11 pending.
 
 ### 정상 흐름 (capability adoption)
 1. Daniel: "improve finhub harness from the reference repos". `_workspace/` holds a runtime run → moved to `_workspace_{timestamp}/`; `00_input/request.md` gets `scope: both`.
-2. Phase 1: seven maps; two reused (SHA and scope match), five re-mined with prior maps passed.
+2. Phase 1: eight maps; two reused (SHA and scope match), six re-mined with prior maps passed.
 3. Phase 1b: scout writes a 9-row backlog; orchestrator relays the table and stops. Daniel: "C2".
 4. Phase 2: architect writes `02_strategy-architect_C2.md` targeting `skills/finhub-harness/references/qa-agent-guide.md`; judge round 1 rejects one NET-NEW row for a vacuous verification; `SendMessage`; round 2 clean.
 5. Phase 3: builder applies the insertions, greps match, packager exits 0, pytest unchanged; QA PASS; commit, draft PR, subscribe; back to the backlog for the next pick.
