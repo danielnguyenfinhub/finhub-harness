@@ -1,4 +1,4 @@
-"""Proof for skills/finhub-harness/scripts/lint_harness.py (C2)."""
+"""Proof for skills/finhub-harness/scripts/lint_harness.py (C2, C6, C17)."""
 
 import subprocess
 import sys
@@ -218,3 +218,228 @@ def test_lazy_delegation_matches_mixed_case(tmp_path: Path) -> None:
     _orch(tmp_path, "mix", "go as Discussed\nbased on the Research\n")
     out = lint(tmp_path)[1]
     assert out.count("lazy-delegation") == 2, out
+
+
+# --- C17: local links, bundled references/ files, duplicate names -----------------------------
+OK_LINKS = FIX / "harness_links_ok"
+BAD_LINKS = FIX / "harness_links_bad"
+
+
+def test_links_ok_fixture_has_no_false_errors() -> None:
+    code, out = lint(OK_LINKS)  # anchors, URLs, fences, inline code, ancestors, placeholders
+    assert code == 0, out
+    assert out.strip().endswith("0 error(s), 0 warning(s)"), out
+
+
+def test_links_bad_fixture_names_every_seeded_defect() -> None:
+    code, out = lint(BAD_LINKS)
+    assert code == 1 and "Traceback" not in out, out
+    broken = "skills/broken/SKILL.md: "
+    expected = [
+        "duplicate-name skill 'dup-one' in skills/dup-one/SKILL.md, skills/dup-two/SKILL.md",
+        "duplicate-name agent 'twin' in agents/twin-a.md, agents/twin-b.md",
+        broken + "broken-link line 8: 'missing.md' does not exist",
+        broken + "broken-link line 8: 'assets/none.png' does not exist",
+        broken + "broken-link line 9: 'gone/page.md#top' does not exist",
+        broken + "broken-link line 12: 'gone-def.md' does not exist",
+        broken + "broken-link line 19: 'after-fence.md' does not exist",
+        broken + "broken-link line 20: '<missing angle.md>' does not exist",
+        broken + "bundled-ref line 14: references/ghost.md does not exist",
+        broken + "bundled-ref line 14: references/ghost2.md does not exist",
+        "skills/dup-two/SKILL.md: dir-name",
+    ]
+    errors = [line for line in out.splitlines() if line.startswith("ERROR")]
+    for want in expected:
+        assert any(want in line for line in errors), (want, out)
+    assert len(errors) == len(expected), out
+    assert "hidden" not in out, out  # the fenced lines stay silent
+
+
+def test_bundled_reference_resolves_in_the_skill_dir_or_an_ancestor_up_to_the_root_parent(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "references").mkdir()
+    (tmp_path / "references/shared.md").write_text("x", encoding="utf-8")
+    skill = tmp_path / "proj/skills/s/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    head = '---\nname: s\ndescription: "S. Use to re-run."\n---\n'
+    skill.write_text(head + "see references/shared.md and references/nope.md\n", encoding="utf-8")
+    out = lint(tmp_path / "proj")[1]  # root.parent is tmp_path, where shared.md lives
+    assert "references/nope.md does not exist" in out and "shared.md" not in out, out
+    (tmp_path / "proj/skills/s/references").mkdir()
+    (tmp_path / "proj/skills/s/references/nope.md").write_text("x", encoding="utf-8")
+    assert lint(tmp_path / "proj")[0] == 0  # now found in the skill's own references/
+
+
+def test_this_repo_links_and_bundled_refs_are_clean() -> None:
+    for target in (REPO / ".claude", REPO):
+        out = lint(target)[1]
+        for rule in ("broken-link", "bundled-ref", "duplicate-name"):
+            assert rule not in out, out
+
+
+# (what the rule does, text in lint_harness.py, replacement, fixture, output text that flips)
+MUTANTS: list[tuple[str, str, str, Path | str | None, str]] = [
+    (
+        "link existence",
+        "            if missing:\n",
+        "            if False:\n",
+        BAD_LINKS,
+        "broken-link",
+    ),
+    (
+        "bundled existence",
+        "                if found:\n                    break\n",
+        "                if True:\n                    break\n",
+        BAD_LINKS,
+        "bundled-ref",
+    ),
+    (
+        "duplicate names",
+        "        if len(paths) > 1:\n",
+        "        if len(paths) > 99:\n",
+        BAD_LINKS,
+        "duplicate-name",
+    ),
+    (
+        "fence skip",
+        "            fence = m.group(1)\n",
+        '            fence = ""\n',
+        OK_LINKS,
+        "broken-link",
+    ),
+    (
+        "non-local skip",
+        "if not clean or NONLOCAL_RE.match(clean):",
+        "if not clean:",
+        OK_LINKS,
+        "broken-link",
+    ),
+    (
+        "inline-code strip",
+        'LINK_RE.findall(CODE_RE.sub("", line))',
+        "LINK_RE.findall(line)",
+        OK_LINKS,
+        "broken-link",
+    ),
+    ("multi-segment skip", r"(?![\w/-])", r"(?![\w-])", OK_LINKS, "bundled-ref"),
+    ("ancestor stop", "stop = root.resolve().parent", "stop = root.resolve()", None, "bundled-ref"),
+    (
+        "skills-only bundled",
+        "        if path in skills:\n",
+        "        if True:\n",
+        OK_LINKS,
+        "bundled-ref",
+    ),
+    (
+        "unquote",
+        'clean = unquote(target.strip("<>").split("#", 1)[0].split("?", 1)[0])',
+        'clean = target.strip("<>").split("#", 1)[0].split("?", 1)[0]',
+        OK_LINKS,
+        "broken-link",
+    ),
+    (
+        "fence closer character",
+        "                and m.group(1)[0] == fence[0]\n",
+        "",
+        OK_LINKS,
+        "broken-link",
+    ),
+    (
+        "bundled skips inline code",
+        "for ref in BUNDLED_RE.findall(line):",
+        'for ref in BUNDLED_RE.findall(CODE_RE.sub("", line)):',
+        BAD_LINKS,
+        "references/ghost.md does not exist",
+    ),
+    (
+        "definition loose",
+        r"(<[^>\n]+>|(?=\S*(?:/|\.\w))[^\s<]\S*)\s*(?:[\"'(].*)?$",
+        r"(<[^>\n]+>|\S+)",
+        OK_LINKS,
+        "broken-link",
+    ),
+    ("definition footnote", r"\[(?!\^)", r"\[", OK_LINKS, "broken-link"),
+    ("definition end of line", r"\s*(?:[\"'(].*)?$", "", OK_LINKS, "broken-link"),
+    ("definition path guard", r"(?=\S*(?:/|\.\w))", "", OK_LINKS, "broken-link"),
+    ("bundled OSError guard", "except OSError:", "except KeyError:", "long", "Traceback"),
+    (
+        "link OSError guard",
+        "except (OSError, ValueError):",
+        "except KeyError:",
+        OK_LINKS,
+        "Traceback",
+    ),
+    (
+        "closer info string",
+        '                and not line.strip(" \\t`~")\n',
+        "",
+        OK_LINKS,
+        "broken-link",
+    ),
+    ("angle target", r"(<[^>\n]+>|(?:[^()\s]|", r"((?:[^()\s]|", BAD_LINKS, "missing angle.md"),
+    ("lookbehind hyphen", r"(?<![\w./-])", r"(?<![\w./])", OK_LINKS, "bundled-ref"),
+    ("lookbehind word", r"(?<![\w./-])", r"(?<![./-])", OK_LINKS, "bundled-ref"),
+    ("definition indent", r"^ {0,3}\[(?!", r"^\s*\[(?!", OK_LINKS, "broken-link"),
+    (
+        "link grammar",
+        r"""(?:[^()\s]|\([^()\s]*\))+)(?=\s*\)|\s+[\"'(])""",
+        r"[^)\s]+)",
+        OK_LINKS,
+        "broken-link",
+    ),
+]
+
+
+def _long_tree(root: Path) -> Path:
+    """A skill with a references/ dir that mentions a real file, a 256- and a 5,000-char file name."""
+    skill = root / "skills/s/SKILL.md"
+    (skill.parent / "references").mkdir(parents=True, exist_ok=True)
+    (skill.parent / "references/real.md").write_text("x", encoding="utf-8")
+    head = '---\nname: s\ndescription: "S. Use to re-run."\n---\n'
+    body = f"see references/real.md, references/{'a' * 256}.md and references/{'b' * 5000}.md\n"
+    skill.write_text(head + body, encoding="utf-8")
+    return root
+
+
+def _run_mutant(tmp_path: Path, old: str, new: str, target: Path) -> str:
+    text = LINT.read_text(encoding="utf-8")
+    assert text.count(old) == 1, old  # a refactor that moves the rule must update this table
+    mutant = tmp_path / "lint_mutant.py"
+    mutant.write_text(text.replace(old, new), encoding="utf-8")
+    run = subprocess.run(
+        [sys.executable, str(mutant), str(target)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    return run.stdout + run.stderr
+
+
+def test_deleting_any_c17_rule_is_caught_by_a_fixture(tmp_path: Path) -> None:
+    for what, old, new, fixture, rule in MUTANTS:
+        if fixture is None:  # the ancestor search needs a tree where the file sits above the root
+            (tmp_path / "references").mkdir(exist_ok=True)
+            (tmp_path / "references/shared.md").write_text("x", encoding="utf-8")
+            skill = tmp_path / "proj/skills/s/SKILL.md"
+            skill.parent.mkdir(parents=True, exist_ok=True)
+            head = '---\nname: s\ndescription: "S. Use to re-run."\n---\n'
+            skill.write_text(head + "see references/shared.md\n", encoding="utf-8")
+            target = tmp_path / "proj"
+        elif fixture == "long":  # names no file system can hold
+            target = _long_tree(tmp_path / "long")
+        else:
+            assert isinstance(fixture, Path)
+            target = fixture
+        assert (rule in lint(target)[1]) == (fixture is BAD_LINKS), what  # the real rule behaves
+        got = _run_mutant(tmp_path, old, new, target)
+        assert (rule in got) != (fixture is BAD_LINKS), (what, got)  # the mutant flips the verdict
+
+
+def test_overlong_bundled_token_is_reported_missing_not_a_crash(tmp_path: Path) -> None:
+    code, out = lint(_long_tree(tmp_path))
+    assert code == 1 and "Traceback" not in out, out[-300:]
+    errors = [line for line in out.splitlines() if line.startswith("ERROR")]
+    assert len(errors) == 2, out  # real.md is found; the two impossible names are missing
+    assert all("bundled-ref" in line and "does not exist" in line for line in errors), out

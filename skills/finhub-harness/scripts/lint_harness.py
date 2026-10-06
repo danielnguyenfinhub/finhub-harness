@@ -1,12 +1,16 @@
 """Lint a harness dir (agents/*.md, skills/*/SKILL.md). Exit 0 clean, 1 errors, 2 usage.
 Adapted from references/crewai/lib/crewai/src/crewai/skills/validation.py:43 (MIT) and
-references/deepseek_harness/packages/skill/skill/src/index.ts:20 (MIT)."""
+references/deepseek_harness/packages/skill/skill/src/index.ts:20 (MIT);
+link, bundled-file and duplicate-name rules adapted from references/meta_harness/scripts/validate_skills.py:72
+and references/meta_harness/scripts/audit_harness.py:117 (Apache-2.0)."""
 
 from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import unquote
 
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 KEY_RE = re.compile(r"^([A-Za-z][\w-]*):\s?(.*)$")
@@ -25,6 +29,21 @@ BUILTIN = {"general-purpose", "Explore", "Plan", "statusline-setup", "claude-cod
 SKILL_KEYS = {"name", "description", "license", "allowed-tools", "metadata", "version"}
 SKILL_KEYS |= {"author", "tags", "disable-model-invocation", "user-invocable", "argument-hint"}
 AGENT_KEYS = {"name", "description", "tools", "model", "color"}
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+LINK_RE = re.compile(
+    r"!?\[[^\]\n]{0,300}\]\(\s*(<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)(?=\s*\)|\s+[\"'(])"
+)
+# a definition: not a ^footnote, a path-like target, then end of line or a quoted/parenthesised title
+DEF_RE = re.compile(
+    r"^ {0,3}\[(?!\^)[^\]\n]{1,300}\]:\s*(<[^>\n]+>|(?=\S*(?:/|\.\w))[^\s<]\S*)\s*(?:[\"'(].*)?$"
+)
+CODE_RE = re.compile(r"`[^`\n]*`")
+NONLOCAL_RE = re.compile(
+    r"^(?:[A-Za-z][A-Za-z0-9+.-]*:|[/#{$~])"
+)  # scheme, anchor, absolute, template
+BUNDLED_RE = re.compile(
+    r"(?<![\w./-])references/([A-Za-z0-9_][A-Za-z0-9_.-]*\.[A-Za-z0-9]+)(?![\w/-])"
+)
 
 out: list[str] = []
 
@@ -86,6 +105,71 @@ def check_meta(path: Path, data: dict[str, str], known: set[str], expect: str | 
     return name
 
 
+def prose(text: str) -> Iterator[tuple[int, str]]:
+    """(line number, line) outside ``` and ~~~ fences; an unclosed fence hides the rest."""
+    fence = ""
+    for n, line in enumerate(text.splitlines(), 1):
+        m = FENCE_RE.match(line)
+        if fence:
+            # a closing fence uses the same character, is at least as long and has no info string
+            if (
+                m
+                and m.group(1)[0] == fence[0]
+                and len(m.group(1)) >= len(fence)
+                and not line.strip(" \t`~")
+            ):
+                fence = ""
+        elif m:
+            fence = m.group(1)
+        else:
+            yield n, line
+
+
+def check_links(path: Path, text: str) -> None:
+    """Local markdown link targets must exist, resolved against the linking file's own directory."""
+    for n, line in prose(text):
+        found = (
+            [m.group(1)] if (m := DEF_RE.match(line)) else LINK_RE.findall(CODE_RE.sub("", line))
+        )
+        for target in found:
+            clean = unquote(target.strip("<>").split("#", 1)[0].split("?", 1)[0])
+            if not clean or NONLOCAL_RE.match(clean):
+                continue
+            try:
+                missing = not (path.parent / clean).exists()
+            except (OSError, ValueError):  # over-long or NUL target: not a file we can judge
+                continue
+            if missing:
+                report("ERROR", path, "broken-link", f"line {n}: {target!r} does not exist")
+
+
+def check_bundled(path: Path, root: Path, text: str) -> None:
+    """A top-level `references/<file>.<ext>` mention must exist in the skill dir or an ancestor dir
+    up to the lint root's parent (repo-level files such as references/LICENSES.md resolve there).
+    Deeper paths (references/<repo>/...) are submodule citations and are not checked."""
+    stop = root.resolve().parent
+    for n, line in prose(text):
+        for ref in BUNDLED_RE.findall(line):
+            d = path.resolve().parent
+            while True:
+                try:
+                    found = (d / "references" / ref).exists()
+                except OSError:  # over-long name: no such file can exist, so it is missing
+                    found = False
+                if found:
+                    break
+                if d in (stop, d.parent):
+                    report(
+                        "ERROR",
+                        path,
+                        "bundled-ref",
+                        f"line {n}: references/{ref} does not exist "
+                        "(create it, or cite it as <skill>/references/x.md or inside a code fence)",
+                    )
+                    break
+                d = d.parent
+
+
 def connectors(path: Path, body: str) -> set[str]:
     """Servers under '## Required connectors' (one per line, bullet and backticks optional)."""
     m = SECTION_RE.search(body)
@@ -116,6 +200,7 @@ def main(argv: list[str]) -> int:
     if not agents and not skills:
         report("ERROR", root, "empty", "no agents/*.md or skills/*/SKILL.md (pass the .claude dir)")
     names: set[str] = set()
+    owners: dict[tuple[bool, str], list[Path]] = {}
     texts: dict[Path, str] = {}
     declared: set[tuple[str, str]] = set()
     for path in agents + skills:
@@ -125,6 +210,8 @@ def main(argv: list[str]) -> int:
         is_agent = path in agents
         keys, expect = (AGENT_KEYS, None) if is_agent else (SKILL_KEYS, path.parent.name)
         name = check_meta(path, data, keys, expect)
+        if name:
+            owners.setdefault((is_agent, name), []).append(path)
         if is_agent:
             names.add(name)
             if "model" not in data:
@@ -142,6 +229,19 @@ def main(argv: list[str]) -> int:
                     report("ERROR", path, "subagent-ref", f"line {n}: no agent file for {ref!r}")
             if v1 := V1_RE.search(line):
                 report("ERROR", path, "v1-artefact", f"line {n}: {v1.group(0)}")
+    for (is_agent, name), paths in sorted(owners.items()):  # same name, two files (C17)
+        if len(paths) > 1:
+            where = ", ".join(p.relative_to(root).as_posix() for p in paths)
+            report(
+                "ERROR",
+                root,
+                "duplicate-name",
+                f"{'agent' if is_agent else 'skill'} {name!r} in {where}",
+            )
+    for path, text in texts.items():
+        check_links(path, text)
+        if path in skills:
+            check_bundled(path, root, text)
     for path, text in texts.items():  # a brief that points back at earlier results (C6)
         if not SPAWN_RE.search(text):
             continue
