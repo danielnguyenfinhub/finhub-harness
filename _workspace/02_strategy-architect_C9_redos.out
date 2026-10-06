@@ -1,0 +1,347 @@
+redact     eyJ-repeat                          4096    0.015s ok status=pass tail=4000
+redact     eyJ-repeat                        200000    0.019s ok status=pass tail=4000
+redact     eyJ-repeat                       1000000    0.028s ok status=pass tail=4000
+redact     eyJ-dash-repeat                     4096    0.015s ok status=pass tail=4000
+redact     eyJ-dash-repeat                   200000    0.020s ok status=pass tail=4000
+redact     eyJ-dash-repeat                  1000000    0.025s ok status=pass tail=4000
+redact     eyJ-dot-repeat                      4096    0.018s ok status=pass tail=4000
+redact     eyJ-dot-repeat                    200000    0.027s ok status=pass tail=4000
+redact     eyJ-dot-repeat                   1000000    0.026s ok status=pass tail=4000
+redact     sk-repeat                           4096    0.015s ok status=pass tail=4000
+redact     sk-repeat                         200000    0.020s ok status=pass tail=4000
+redact     sk-repeat                        1000000    0.028s ok status=pass tail=4000
+redact     sk-ant-repeat                       4096    0.018s ok status=pass tail=24
+redact     sk-ant-repeat                     200000    0.020s ok status=pass tail=28
+redact     sk-ant-repeat                    1000000    0.024s ok status=pass tail=29
+redact     AKIA-repeat                         4096    0.016s ok status=pass tail=4000
+redact     AKIA-repeat                       200000    0.022s ok status=pass tail=4000
+redact     AKIA-repeat                      1000000    0.021s ok status=pass tail=4000
+redact     ghp_-repeat                         4096    0.014s ok status=pass tail=23
+redact     ghp_-repeat                       200000    0.019s ok status=pass tail=23
+redact     ghp_-repeat                      1000000    0.022s ok status=pass tail=23
+redact     github_pat_-repeat                  4096    0.019s ok status=pass tail=21
+redact     github_pat_-repeat                200000    0.020s ok status=pass tail=4000
+redact     github_pat_-repeat               1000000    0.022s ok status=pass tail=4000
+redact     xox-repeat                          4096    0.015s ok status=pass tail=22
+redact     xox-repeat                        200000    0.019s ok status=pass tail=22
+redact     xox-repeat                       1000000    0.022s ok status=pass tail=22
+redact     Bearer-space-repeat                 4096    0.014s ok status=pass tail=4000
+redact     Bearer-space-repeat               200000    0.020s ok status=pass tail=4000
+redact     Bearer-space-repeat              1000000    0.027s ok status=pass tail=4000
+redact     Bearer-then-token                   4096    0.017s ok status=pass tail=4000
+redact     Bearer-then-token                 200000    0.027s ok status=pass tail=4000
+redact     Bearer-then-token                1000000    0.028s ok status=pass tail=4000
+redact     x-mcp-key-repeat                    4096    0.022s ok status=pass tail=4000
+redact     x-mcp-key-repeat                  200000    0.032s ok status=pass tail=4000
+redact     x-mcp-key-repeat                 1000000    0.037s ok status=pass tail=4000
+redact     PEM-begin-repeat                    4096    0.019s ok status=pass tail=22
+redact     PEM-begin-repeat                  200000    0.028s ok status=pass tail=46
+redact     PEM-begin-repeat                 1000000    0.033s ok status=pass tail=34
+redact     PEM-begin-no-end-after-text         4096    0.015s ok status=pass tail=22
+redact     PEM-begin-no-end-after-text       200000    0.028s ok status=pass tail=60
+redact     PEM-begin-no-end-after-text      1000000    0.030s ok status=pass tail=52
+redact     digits                              4096    0.016s ok status=pass tail=4000
+redact     digits                            200000    0.020s ok status=pass tail=4000
+redact     digits                           1000000    0.023s ok status=pass tail=4000
+redact     dashes                              4096    0.015s ok status=pass tail=4000
+redact     dashes                            200000    0.020s ok status=pass tail=4000
+redact     dashes                           1000000    0.023s ok status=pass tail=4000
+redact     underscores                         4096    0.019s ok status=pass tail=4000
+redact     underscores                       200000    0.021s ok status=pass tail=4000
+redact     underscores                      1000000    0.042s ok status=pass tail=4000
+redact     newlines                            4096    0.016s ok status=pass tail=4000
+redact     newlines                          200000    0.052s ok status=pass tail=4000
+redact     newlines                         1000000    0.027s ok status=pass tail=4000
+redact     spaces                              4096    0.019s ok status=pass tail=4000
+redact     spaces                            200000    0.023s ok status=pass tail=4000
+redact     spaces                           1000000    0.033s ok status=pass tail=4000
+redact     token-chars                         4096    0.021s ok status=pass tail=4000
+redact     token-chars                       200000    0.023s ok status=pass tail=4000
+redact     token-chars                      1000000    0.026s ok status=pass tail=4000
+guard-string word                                4096    0.009s ok Plan
+guard-argv word                                4096    0.007s ok Plan
+guard-argv-many word                                4096    0.012s ok Plan
+guard-shell word                                4096    0.007s ok Plan
+guard-big  word                              200000    0.002s ok refused-by-length=True
+guard-big  word                             1000000    0.011s ok refused-by-length=True
+guard-string words                               4096    0.002s ok str
+guard-argv words                               4096    0.005s ok Plan
+guard-argv-many words                               4096    0.006s ok Plan
+guard-shell words                               4096    0.007s ok Plan
+guard-big  words                             200000    0.000s ok refused-by-length=True
+guard-big  words                            1000000    0.004s ok refused-by-length=True
+guard-string single-quotes                       4096    0.002s ok Plan
+guard-argv single-quotes                       4096    0.000s ok str
+guard-argv-many single-quotes                       4096    0.001s ok str
+guard-shell single-quotes                       4096    0.003s ok Plan
+guard-big  single-quotes                     200000    0.005s ok refused-by-length=True
+guard-big  single-quotes                    1000000    0.025s ok refused-by-length=True
+guard-string double-quotes                       4096    0.002s ok Plan
+guard-argv double-quotes                       4096    0.004s ok Plan
+guard-argv-many double-quotes                       4096    0.005s ok Plan
+guard-shell double-quotes                       4096    0.003s ok Plan
+guard-big  double-quotes                     200000    0.000s ok refused-by-length=True
+guard-big  double-quotes                    1000000    0.001s ok refused-by-length=True
+guard-string backslashes                         4096    0.004s ok Plan
+guard-argv backslashes                         4096    0.004s ok Plan
+guard-argv-many backslashes                         4096    0.005s ok Plan
+guard-shell backslashes                         4096    0.005s ok Plan
+guard-big  backslashes                       200000    0.000s ok refused-by-length=True
+guard-big  backslashes                      1000000    0.001s ok refused-by-length=True
+guard-string dollar-paren                        4096    0.000s ok str
+guard-argv dollar-paren                        4096    0.004s ok Plan
+guard-argv-many dollar-paren                        4096    0.006s ok Plan
+guard-shell dollar-paren                        4096    0.013s ok str
+guard-big  dollar-paren                      200000    0.000s ok refused-by-length=True
+guard-big  dollar-paren                     1000000    0.001s ok refused-by-length=True
+guard-string semicolons                          4096    0.000s ok str
+guard-argv semicolons                          4096    0.017s ok Plan
+guard-argv-many semicolons                          4096    0.033s ok Plan
+guard-shell semicolons                          4096    0.018s ok Plan
+guard-big  semicolons                        200000    0.000s ok refused-by-length=True
+guard-big  semicolons                       1000000    0.001s ok refused-by-length=True
+guard-string pipes                               4096    0.000s ok str
+guard-argv pipes                               4096    0.009s ok Plan
+guard-argv-many pipes                               4096    0.020s ok Plan
+guard-shell pipes                               4096    0.010s ok Plan
+guard-big  pipes                             200000    0.000s ok refused-by-length=True
+guard-big  pipes                            1000000    0.001s ok refused-by-length=True
+guard-string ampersands                          4096    0.000s ok str
+guard-argv ampersands                          4096    0.009s ok Plan
+guard-argv-many ampersands                          4096    0.016s ok Plan
+guard-shell ampersands                          4096    0.009s ok Plan
+guard-big  ampersands                        200000    0.000s ok refused-by-length=True
+guard-big  ampersands                       1000000    0.001s ok refused-by-length=True
+guard-string tilde-slash                         4096    0.007s ok Plan
+guard-argv tilde-slash                         4096    0.005s ok Plan
+guard-argv-many tilde-slash                         4096    0.006s ok Plan
+guard-shell tilde-slash                         4096    0.005s ok Plan
+guard-big  tilde-slash                       200000    0.000s ok refused-by-length=True
+guard-big  tilde-slash                      1000000    0.001s ok refused-by-length=True
+guard-string assignments                         4096    0.007s ok Plan
+guard-argv assignments                         4096    0.005s ok Plan
+guard-argv-many assignments                         4096    0.007s ok Plan
+guard-shell assignments                         4096    0.004s ok Plan
+guard-big  assignments                       200000    0.001s ok refused-by-length=True
+guard-big  assignments                      1000000    0.007s ok refused-by-length=True
+guard-string dashes                              4096    0.007s ok Plan
+guard-argv dashes                              4096    0.006s ok Plan
+guard-argv-many dashes                              4096    0.009s ok Plan
+guard-shell dashes                              4096    0.005s ok Plan
+guard-big  dashes                            200000    0.001s ok refused-by-length=True
+guard-big  dashes                           1000000    0.007s ok refused-by-length=True
+guard-string dot-dot                             4096    0.011s ok Plan
+guard-argv dot-dot                             4096    0.007s ok Plan
+guard-argv-many dot-dot                             4096    0.009s ok Plan
+guard-shell dot-dot                             4096    0.007s ok Plan
+guard-big  dot-dot                           200000    0.001s ok refused-by-length=True
+guard-big  dot-dot                          1000000    0.007s ok refused-by-length=True
+guard-string sudo-env                            4096    0.002s ok str
+guard-argv sudo-env                            4096    0.008s ok Plan
+guard-argv-many sudo-env                            4096    0.009s ok Plan
+guard-shell sudo-env                            4096    0.008s ok Plan
+guard-big  sudo-env                          200000    0.000s ok refused-by-length=True
+guard-big  sudo-env                         1000000    0.001s ok refused-by-length=True
+guard-string paths                               4096    0.012s ok Plan
+guard-argv paths                               4096    0.008s ok Plan
+guard-argv-many paths                               4096    0.008s ok Plan
+guard-shell paths                               4096    0.007s ok Plan
+guard-big  paths                             200000    0.001s ok refused-by-length=True
+guard-big  paths                            1000000    0.007s ok refused-by-length=True
+guard-string ssh-ish                             4096    0.002s ok str
+guard-argv ssh-ish                             4096    0.004s ok str
+guard-argv-many ssh-ish                             4096    0.007s ok str
+guard-shell ssh-ish                             4096    0.005s ok str
+guard-big  ssh-ish                           200000    0.000s ok refused-by-length=True
+guard-big  ssh-ish                          1000000    0.001s ok refused-by-length=True
+guard-string unicode                             4096    0.007s ok Plan
+guard-argv unicode                             4096    0.007s ok Plan
+guard-argv-many unicode                             4096    0.009s ok Plan
+guard-shell unicode                             4096    0.006s ok Plan
+guard-big  unicode                           200000    0.000s ok refused-by-length=True
+guard-big  unicode                          1000000    0.001s ok refused-by-length=True
+guard-string dev-nodes                           4096    0.002s ok str
+guard-argv dev-nodes                           4096    0.007s ok Plan
+guard-argv-many dev-nodes                           4096    0.007s ok Plan
+guard-shell dev-nodes                           4096    0.004s ok Plan
+guard-big  dev-nodes                         200000    0.000s ok refused-by-length=True
+guard-big  dev-nodes                        1000000    0.001s ok refused-by-length=True
+guard-string git-push                            4096    0.002s ok str
+guard-argv git-push                            4096    0.006s ok Plan
+guard-argv-many git-push                            4096    0.007s ok Plan
+guard-shell git-push                            4096    0.007s ok Plan
+guard-big  git-push                          200000    0.000s ok refused-by-length=True
+guard-big  git-push                         1000000    0.001s ok refused-by-length=True
+guard-string rm-flags                            4096    0.002s ok str
+guard-argv rm-flags                            4096    0.005s ok Plan
+guard-argv-many rm-flags                            4096    0.007s ok Plan
+guard-shell rm-flags                            4096    0.008s ok Plan
+guard-big  rm-flags                          200000    0.000s ok refused-by-length=True
+guard-big  rm-flags                         1000000    0.001s ok refused-by-length=True
+loader     padded-json                         4096    0.000s ok loaded
+loader     padded-json                       262144    0.001s ok loaded
+loader     padded-json                      1000000    0.000s ok refused
+loader     deep-nesting                        4096    0.000s ok refused
+loader     deep-nesting                      262144    0.000s ok refused
+loader     deep-nesting                     1000000    0.000s ok refused
+direct-rs  eyJ-repeat                          4096    0.000s ok rules=0 out=4096
+direct-rs  eyJ-repeat                        200000    0.014s ok rules=0 out=200000
+direct-rs  eyJ-repeat                       1000000    0.069s ok rules=0 out=1000000
+direct-rs  eyJ-dash-repeat                     4096    0.000s ok rules=0 out=4096
+direct-rs  eyJ-dash-repeat                   200000    0.015s ok rules=0 out=200000
+direct-rs  eyJ-dash-repeat                  1000000    0.084s ok rules=0 out=1000000
+direct-rs  eyJ-dot-repeat                      4096    0.000s ok rules=0 out=4096
+direct-rs  eyJ-dot-repeat                    200000    0.015s ok rules=0 out=200000
+direct-rs  eyJ-dot-repeat                   1000000    0.076s ok rules=0 out=1000000
+direct-rs  sk-repeat                           4096    0.000s ok rules=0 out=4096
+direct-rs  sk-repeat                         200000    0.016s ok rules=0 out=200000
+direct-rs  sk-repeat                        1000000    0.077s ok rules=0 out=1000000
+direct-rs  sk-ant-repeat                       4096    0.000s ok rules=1 out=24
+direct-rs  sk-ant-repeat                     200000    0.014s ok rules=1 out=25
+direct-rs  sk-ant-repeat                    1000000    0.070s ok rules=1 out=24
+direct-rs  AKIA-repeat                         4096    0.000s ok rules=0 out=4096
+direct-rs  AKIA-repeat                       200000    0.014s ok rules=0 out=200000
+direct-rs  AKIA-repeat                      1000000    0.066s ok rules=0 out=1000000
+direct-rs  ghp_-repeat                         4096    0.000s ok rules=1 out=23
+direct-rs  ghp_-repeat                       200000    0.012s ok rules=1 out=23
+direct-rs  ghp_-repeat                      1000000    0.067s ok rules=1 out=23
+direct-rs  github_pat_-repeat                  4096    0.000s ok rules=1 out=21
+direct-rs  github_pat_-repeat                200000    0.012s ok rules=1 out=21
+direct-rs  github_pat_-repeat               1000000    0.063s ok rules=1 out=21
+direct-rs  xox-repeat                          4096    0.000s ok rules=1 out=22
+direct-rs  xox-repeat                        200000    0.013s ok rules=1 out=22
+direct-rs  xox-repeat                       1000000    0.075s ok rules=1 out=22
+direct-rs  Bearer-space-repeat                 4096    0.000s ok rules=0 out=4096
+direct-rs  Bearer-space-repeat               200000    0.019s ok rules=0 out=200000
+direct-rs  Bearer-space-repeat              1000000    0.101s ok rules=0 out=1000000
+direct-rs  Bearer-then-token                   4096    0.000s ok rules=0 out=4096
+direct-rs  Bearer-then-token                 200000    0.021s ok rules=0 out=200000
+direct-rs  Bearer-then-token                1000000    0.089s ok rules=0 out=1000000
+direct-rs  x-mcp-key-repeat                    4096    0.001s ok rules=1 out=7258
+direct-rs  x-mcp-key-repeat                  200000    0.030s ok rules=1 out=354547
+direct-rs  x-mcp-key-repeat                 1000000    0.221s ok rules=1 out=1772718
+direct-rs  PEM-begin-repeat                    4096    0.001s ok rules=1 out=22
+direct-rs  PEM-begin-repeat                  200000    0.032s ok rules=1 out=22
+direct-rs  PEM-begin-repeat                 1000000    0.162s ok rules=1 out=22
+direct-rs  PEM-begin-no-end-after-text         4096    0.001s ok rules=1 out=22
+direct-rs  PEM-begin-no-end-after-text       200000    0.019s ok rules=1 out=22
+direct-rs  PEM-begin-no-end-after-text      1000000    0.096s ok rules=1 out=22
+direct-rs  digits                              4096    0.000s ok rules=0 out=4096
+direct-rs  digits                            200000    0.015s ok rules=0 out=200000
+direct-rs  digits                           1000000    0.071s ok rules=0 out=1000000
+direct-rs  dashes                              4096    0.000s ok rules=0 out=4096
+direct-rs  dashes                            200000    0.014s ok rules=0 out=200000
+direct-rs  dashes                           1000000    0.078s ok rules=0 out=1000000
+direct-rs  underscores                         4096    0.000s ok rules=0 out=4096
+direct-rs  underscores                       200000    0.013s ok rules=0 out=200000
+direct-rs  underscores                      1000000    0.072s ok rules=0 out=1000000
+direct-rs  newlines                            4096    0.000s ok rules=0 out=4096
+direct-rs  newlines                          200000    0.015s ok rules=0 out=200000
+direct-rs  newlines                         1000000    0.071s ok rules=0 out=1000000
+direct-rs  spaces                              4096    0.000s ok rules=0 out=4096
+direct-rs  spaces                            200000    0.014s ok rules=0 out=200000
+direct-rs  spaces                           1000000    0.070s ok rules=0 out=1000000
+direct-rs  token-chars                         4096    0.000s ok rules=0 out=4096
+direct-rs  token-chars                       200000    0.015s ok rules=0 out=200000
+direct-rs  token-chars                      1000000    0.081s ok rules=0 out=1000000
+direct-grd word                                4096    0.007s ok allowed
+direct-grd word                               10000    0.017s ok allowed
+direct-grd word                               10001    0.000s ok denied
+direct-grd word                              200000    0.000s ok denied
+direct-grd word                             1000000    0.000s ok denied
+direct-grd words                               4096    0.008s ok allowed
+direct-grd words                              10000    0.018s ok allowed
+direct-grd words                              10001    0.000s ok denied
+direct-grd words                             200000    0.000s ok denied
+direct-grd words                            1000000    0.000s ok denied
+direct-grd single-quotes                       4096    0.004s ok allowed
+direct-grd single-quotes                      10000    0.008s ok allowed
+direct-grd single-quotes                      10001    0.000s ok denied
+direct-grd single-quotes                     200000    0.000s ok denied
+direct-grd single-quotes                    1000000    0.000s ok denied
+direct-grd double-quotes                       4096    0.003s ok allowed
+direct-grd double-quotes                      10000    0.008s ok allowed
+direct-grd double-quotes                      10001    0.000s ok denied
+direct-grd double-quotes                     200000    0.000s ok denied
+direct-grd double-quotes                    1000000    0.000s ok denied
+direct-grd backslashes                         4096    0.006s ok allowed
+direct-grd backslashes                        10000    0.011s ok allowed
+direct-grd backslashes                        10001    0.000s ok denied
+direct-grd backslashes                       200000    0.000s ok denied
+direct-grd backslashes                      1000000    0.000s ok denied
+direct-grd dollar-paren                        4096    0.013s ok denied
+direct-grd dollar-paren                       10000    0.031s ok denied
+direct-grd dollar-paren                       10001    0.000s ok denied
+direct-grd dollar-paren                      200000    0.000s ok denied
+direct-grd dollar-paren                     1000000    0.000s ok denied
+direct-grd semicolons                          4096    0.017s ok allowed
+direct-grd semicolons                         10000    0.049s ok allowed
+direct-grd semicolons                         10001    0.000s ok denied
+direct-grd semicolons                        200000    0.000s ok denied
+direct-grd semicolons                       1000000    0.000s ok denied
+direct-grd pipes                               4096    0.009s ok allowed
+direct-grd pipes                              10000    0.022s ok allowed
+direct-grd pipes                              10001    0.000s ok denied
+direct-grd pipes                             200000    0.000s ok denied
+direct-grd pipes                            1000000    0.000s ok denied
+direct-grd ampersands                          4096    0.009s ok allowed
+direct-grd ampersands                         10000    0.026s ok allowed
+direct-grd ampersands                         10001    0.000s ok denied
+direct-grd ampersands                        200000    0.000s ok denied
+direct-grd ampersands                       1000000    0.000s ok denied
+direct-grd tilde-slash                         4096    0.007s ok allowed
+direct-grd tilde-slash                        10000    0.010s ok denied
+direct-grd tilde-slash                        10001    0.000s ok denied
+direct-grd tilde-slash                       200000    0.000s ok denied
+direct-grd tilde-slash                      1000000    0.000s ok denied
+direct-grd assignments                         4096    0.004s ok allowed
+direct-grd assignments                        10000    0.010s ok allowed
+direct-grd assignments                        10001    0.000s ok denied
+direct-grd assignments                       200000    0.000s ok denied
+direct-grd assignments                      1000000    0.000s ok denied
+direct-grd dashes                              4096    0.004s ok allowed
+direct-grd dashes                             10000    0.010s ok allowed
+direct-grd dashes                             10001    0.000s ok denied
+direct-grd dashes                            200000    0.000s ok denied
+direct-grd dashes                           1000000    0.000s ok denied
+direct-grd dot-dot                             4096    0.005s ok allowed
+direct-grd dot-dot                            10000    0.012s ok allowed
+direct-grd dot-dot                            10001    0.000s ok denied
+direct-grd dot-dot                           200000    0.000s ok denied
+direct-grd dot-dot                          1000000    0.000s ok denied
+direct-grd sudo-env                            4096    0.007s ok allowed
+direct-grd sudo-env                           10000    0.016s ok allowed
+direct-grd sudo-env                           10001    0.000s ok denied
+direct-grd sudo-env                          200000    0.000s ok denied
+direct-grd sudo-env                         1000000    0.000s ok denied
+direct-grd paths                               4096    0.007s ok allowed
+direct-grd paths                              10000    0.014s ok allowed
+direct-grd paths                              10001    0.000s ok denied
+direct-grd paths                             200000    0.000s ok denied
+direct-grd paths                            1000000    0.000s ok denied
+direct-grd ssh-ish                             4096    0.004s ok denied
+direct-grd ssh-ish                            10000    0.008s ok denied
+direct-grd ssh-ish                            10001    0.000s ok denied
+direct-grd ssh-ish                           200000    0.000s ok denied
+direct-grd ssh-ish                          1000000    0.000s ok denied
+direct-grd unicode                             4096    0.004s ok allowed
+direct-grd unicode                            10000    0.011s ok allowed
+direct-grd unicode                            10001    0.000s ok denied
+direct-grd unicode                           200000    0.000s ok denied
+direct-grd unicode                          1000000    0.000s ok denied
+direct-grd dev-nodes                           4096    0.004s ok allowed
+direct-grd dev-nodes                          10000    0.009s ok allowed
+direct-grd dev-nodes                          10001    0.000s ok denied
+direct-grd dev-nodes                         200000    0.000s ok denied
+direct-grd dev-nodes                        1000000    0.000s ok denied
+direct-grd git-push                            4096    0.006s ok allowed
+direct-grd git-push                           10000    0.015s ok allowed
+direct-grd git-push                           10001    0.000s ok denied
+direct-grd git-push                          200000    0.000s ok denied
+direct-grd git-push                         1000000    0.000s ok denied
+direct-grd rm-flags                            4096    0.006s ok allowed
+direct-grd rm-flags                           10000    0.016s ok allowed
+direct-grd rm-flags                           10001    0.000s ok denied
+direct-grd rm-flags                          200000    0.000s ok denied
+direct-grd rm-flags                         1000000    0.000s ok denied
+rules in the table: 10; limit 5.0s; overall OK

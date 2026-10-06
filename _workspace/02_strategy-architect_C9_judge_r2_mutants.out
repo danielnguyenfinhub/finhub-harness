@@ -1,0 +1,49 @@
+J01 | su/watch refusal removed | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('su', '-c', 'a;b')]
+J02 | SHELL_RUNNERS loses watch | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('watch', 'ls')]
+J03 | SHELL_RUNNERS loses su | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('su', '-c', 'a;b')]
+J04 | no lower-casing in _base | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('BASH', '-c', 'a')]
+J05 | .exe not stripped | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('bash.exe', '-c', 'a')]
+J06 | wrong suffix stripped | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('bash.exe', '-c', 'a')]
+J07 | no basename (whole word) | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('/bin/sh', '-c', 'id && id')]
+J08 | resolution result not used (rev 3c text: the hit is returned unwalked) | KILLED | FAILED tests/test_gates.py::test_a_bare_name_is_searched_along_a_relative_or_empty_path_entry_from_the_gate_cwd[bin]
+J09 | PATH lookup dropped (rev 3 text) | KILLED | FAILED tests/test_gates.py::test_a_bare_name_is_searched_along_a_relative_or_empty_path_entry_from_the_gate_cwd[bin]
+J10 | PATH lookup limited to /bin (rev 3 text) | KILLED | FAILED tests/test_gates.py::test_a_bare_name_is_searched_along_a_relative_or_empty_path_entry_from_the_gate_cwd[bin]
+J11 | slash test on backslash (rev 3 text) | KILLED | FAILED tests/test_gates.py::test_a_relative_symlink_to_a_shell_is_refused_from_the_gate_cwd_not_the_runner_cwd
+J12 | resolution result ignored (names = literal only) | KILLED | FAILED tests/test_gates.py::test_a_relative_symlink_to_a_shell_is_refused_from_the_gate_cwd_not_the_runner_cwd
+J13 | wrapper rule skips the first later arg | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('/usr/bin/env', 'bash')]
+J14 | wrapper rule scans argv incl. argv[0] (maybe equivalent) | SURVIVED | 677 passed in 27.53s
+J15 | wrapper rule: and -> or | KILLED | FAILED tests/test_gates.py::test_ordinary_programs_are_not_mistaken_for_shells[pytest -k bash]
+J16 | wrapper later-arg compared without basename | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('find', '.', '-execdir', '/bin/bash', ']
+J17 | wrapper name compared case-sensitively with raw argv[0] | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('/usr/bin/env', 'bash')]
+J18 | wrapper rule dropped | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('/usr/bin/env', 'bash')]
+J19 | shell check also on declared shell gates | KILLED | FAILED tests/test_gates.py::test_proof_shell_true_only_when_declared_and_allowed
+J20 | shell check only on declared shell gates | KILLED | FAILED tests/test_gates.py::test_proof_shell_true_only_when_declared_and_allowed
+J21 | shell check dropped entirely | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('sh', '-c', 'echo A; echo B > out.txt &]
+J22 | wrapper message reuses the shell message (maybe equivalent) | KILLED | FAILED tests/test_gates.py::test_the_documented_wrapper_false_positives_are_refused[timeout 5 pytest tests/shell/sh]
+J23 | OSError while resolving accepted (rev 3c text: fail open instead of a refusal) | KILLED | FAILED tests/test_gates.py::test_an_unreadable_link_or_any_os_error_while_resolving_is_a_refusal_not_a_pass
+J24 | SHELL_NAMES loses ash | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('ash', '-c', 'a')]
+J25 | SHELL_NAMES loses fish | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('fish', '-c', 'a')]
+J26 | SHELL_NAMES loses rbash | KILLED | FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+J27 | SHELL_NAMES loses tcsh | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('tcsh', '-c', 'a')]
+J28 | SHELL_NAMES loses posh | KILLED | FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+J29 | SHELL_NAMES loses yash | KILLED | FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+J30 | SHELL_NAMES loses sh | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('Sh', '-c', 'a')]
+J31 | WRAPPERS loses timeout | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('timeout', '5', 'sh', '-c', 'a')]
+J32 | WRAPPERS loses xargs | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('xargs', '-I{}', 'sh', '-c', '{}')]
+J33 | WRAPPERS loses find | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('find', '.', '-exec', 'sh', '-c', 'a;b']
+J34 | WRAPPERS loses env | KILLED | FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('/usr/bin/env', 'bash')]
+J35 | WRAPPERS gains pytest | KILLED | FAILED tests/test_gates.py::test_ordinary_programs_are_not_mistaken_for_shells[pytest -k bash]
+J36 | WRAPPERS gains python | KILLED | FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+J37 | WRAPPERS loses parallel | KILLED | FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+J38 | SIGHUP not handled | KILLED | FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+J39 | SIGTERM not handled | KILLED | FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+J40 | handler order swapped (maybe equivalent) | KILLED | FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+J41 | exit code is the signal number | KILLED | FAILED tests/test_gates.py::test_a_signal_to_the_runner_kills_the_running_gate_and_is_never_a_pass[SIGTERM]
+J42 | exit code fixed 143 | KILLED | FAILED tests/test_gates.py::test_a_signal_to_the_runner_kills_the_running_gate_and_is_never_a_pass[SIGHUP]
+J43 | off-main-thread guard removed | KILLED | FAILED tests/test_gates.py::test_the_handlers_are_left_alone_off_the_main_thread
+J44 | only the first handler restored | KILLED | FAILED tests/test_gates.py::test_the_handlers_unwind_with_128_plus_the_signal_and_are_restored[SIGHUP]
+J45 | handlers never installed | KILLED | FAILED tests/test_gates.py::test_a_signal_to_the_runner_kills_the_running_gate_and_is_never_a_pass[SIGTERM]
+J46 | restore None falls back to SIG_IGN | KILLED | FAILED tests/test_gates.py::test_a_handler_installed_from_c_is_restored_to_the_default
+J47 | handlers restored before the run finishes (inside try) | KILLED | FAILED tests/test_gates.py::test_the_handlers_unwind_with_128_plus_the_signal_and_are_restored[SIGTERM]
+J48 | restore only when not None | KILLED | FAILED tests/test_gates.py::test_a_handler_installed_from_c_is_restored_to_the_default
+TOTAL 48 killed 47 survived ['J14'] bad []
