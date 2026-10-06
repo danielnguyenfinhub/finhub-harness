@@ -111,22 +111,29 @@ const SCORE = { type: 'object', required: ['scores'], properties: {
     required: ['index', 'score', 'strengths'], properties: {
       index: { type: 'integer' }, score: { type: 'number' }, strengths: { type: 'string' } } } } } }
 const judged = (await parallel(Array.from({ length: judgeCount }, (_, j) => () =>
-  agent(`Score the following ${drafts.length} drafts:\n${drafts.map((d, i) => `[${i}] ${d}`).join('\n---\n')}`,
+  agent(`Score each of the following ${drafts.length} drafts from 0 to 10:\n${drafts.map((d, i) => `[${i}] ${d}`).join('\n---\n')}`,
     { label: `judge:${j}`, phase: 'Judging', schema: SCORE })))).filter(Boolean)
 log(`Received results from ${judged.length} of ${judgeCount} judges.`)
 if (!judged.length) return { error: 'There are no completed judging results.', drafts }
 
 phase('Synthesis')
+const valid = s => Number.isFinite(s) && s >= 0 && s <= 10
 const ranked = drafts.map((_, i) => {
-  const scores = judged.flatMap(r =>
-    r.scores.filter(x => x.index === i).map(x => x.score)).filter(Number.isFinite)
+  // one score per judge per draft: each judge's first valid entry for index i
+  const scores = judged.map(r => r.scores.find(x => x.index === i && valid(x.score))?.score)
+    .filter(s => s !== undefined)
   return scores.length
-    ? { index: i, average: scores.reduce((sum, score) => sum + score, 0) / scores.length }
+    ? { index: i, n: scores.length, spread: Math.max(...scores) - Math.min(...scores),
+        average: scores.reduce((sum, score) => sum + score, 0) / scores.length }
     : null
 }).filter(Boolean)
 if (!ranked.length) return { error: 'There are no valid per-draft scores.', drafts, judged }
 const winner = ranked.reduce((best, item) =>
   item.average > best.average ? item : best).index
+const { n, spread } = ranked.find(r => r.index === winner)
+const spreadLimit = Number.isFinite(args.spreadLimit) ? args.spreadLimit : 3
+const lowConsensus = n < 2 || spread > spreadLimit
+if (lowConsensus) log(`Low consensus: ${n} valid scores, spread ${spread}.`)
 const finalDraft = await agent(
   `Write the final version based on the draft that received the highest score. Also reflect the strengths of the other drafts where needed.\nTop-scoring draft:\n${drafts[winner]}\nJudges' comments:\n${JSON.stringify(judged)}`,
   { phase: 'Synthesis' })
@@ -134,8 +141,24 @@ if (!finalDraft) {
   log('Could not write the final version.')
   return { error: 'Could not write the final version.', drafts, judged, winner }
 }
-return finalDraft
+return { finalDraft, lowConsensus, spread, n }
 ```
+
+### Reporting judge disagreement
+
+A mean hides disagreement: scores of 9, 2 and 9 average the same 6.7 as three judges who all said 6.7. The script above therefore also reports, for the winning draft, how many judges' scores it rests on (`n`), their `spread` and a `lowConsensus` flag.
+
+- A score is valid only when it is a finite number from 0 to 10 for that draft index. A failed agent, a reply that breaks the schema, a draft the judge skipped and an out-of-range score are all left out of the tally. Never fill the gap with a midpoint or a default: a missing score is not a score.
+- Each judge counts once per draft: if a reply lists the same index twice, its first valid entry is used, so `n` is the number of judges who scored the draft.
+- `spread` is the highest valid score minus the lowest for the winning draft.
+- `lowConsensus` is true when `n` is below 2 (disagreement cannot be measured; a panel of one judge is always flagged) or `spread` is above `args.spreadLimit`. The limit is 3 points on the 0 to 10 scale unless `args.spreadLimit` is a finite number; any other value (a string, `null`, `NaN`) falls back to 3 rather than switching the flag off. The default is a starting guess; tune it after real panels.
+- The script still returns the top-averaged draft. The flag only reports; it does not make judges agree or change the pick.
+
+What the flag means: with three judges, one judge more than 3 points away from the other two is enough to flag (9, 9, 5 flags; 9, 9, 6 does not). A flag is a reason to look, not proof that the pick is wrong. Spread is measured for the winner only, so the flag says nothing about how close the second draft was: a winner of 7.01 against 7.00 with unanimous scores is not flagged.
+
+What the caller does with it: on `lowConsensus: true`, present the draft as "the panel disagreed" with the spread, never as a settled verdict. Do not ask the same judges to score again. If a decision rests on it, show a human the winner and the judges' comments, or run a new panel of fresh agents whose prompts carry none of the earlier scores. A loop that repeats a panel until it agrees, within a fixed round cap, counts a `lowConsensus` round as not agreed and keeps the cap, so the flag adds no rounds. A loop that audits with one fresh judge per round has a single score per draft, so the flag does not apply there; use it where a panel gates a decision.
+
+The comparison of a top score against a configurable consensus threshold, and returning the best proposal anyway when it falls short, come from a debate strategy; that source averages scores without measuring spread and defaults a missing score to 0.5, which this recipe deliberately does not copy. The idea that a reply the parser cannot read must not count in the caller's favour comes from a hook parser that returns not-ok for any reply that is not a JSON object with a boolean `ok`, apart from the bare words ok, true and yes; here the reply is excluded instead, because other judges remain. (adapted from references/autogpt/classic/original_autogpt/autogpt/agents/prompt_strategies/multi_agent_debate.py:529 (MIT); adapted from references/openharness/src/openharness/hooks/executor.py:232 (MIT))
 
 ## 4. Loop-until-dry
 
