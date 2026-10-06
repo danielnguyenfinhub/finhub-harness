@@ -1,0 +1,28 @@
+ok   clean copy  B=PASS E=PASS G=FAIL L=PASS S=PASS
+ok   C1 layer routing->execution on F1  B=PASS E=PASS G=FAIL L=FAIL S=PASS
+ok   C2 governance->execution on F4  B=PASS E=PASS G=FAIL L=FAIL S=PASS
+ok   C3 delete the F3 lesson  B=PASS E=PASS G=FAIL L=FAIL S=PASS
+ok   C4 evidence path does not exist  B=PASS E=FAIL G=FAIL L=PASS S=PASS
+ok   C5 evidence line out of range  B=PASS E=FAIL G=FAIL L=PASS S=PASS
+ok   C6 token in the report  B=PASS E=PASS G=FAIL L=PASS S=FAIL
+ok   C7 token body in a harness file  B=PASS E=PASS G=FAIL L=PASS S=FAIL
+ok   C8 token in the change history  B=PASS E=PASS G=FAIL L=PASS S=FAIL
+ok   C9 a backup deleted  B=FAIL E=PASS G=FAIL L=PASS S=PASS
+ok   C10 a backup differs by one byte  B=FAIL E=PASS G=FAIL L=PASS S=PASS
+ok   C11 feedback.md edited  B=FAIL E=PASS G=FAIL L=PASS S=PASS
+ok   C12 nothing changed  B=FAIL E=PASS G=FAIL L=PASS S=PASS
+ok   C13 evolve skill edited  B=FAIL E=PASS G=FAIL L=PASS S=PASS
+ok   C14 no backup action before the edit (transcript)  B=FAIL E=PASS G=FAIL L=PASS S=PASS
+ok   C15 evidence file never opened (transcript)  B=PASS E=FAIL G=FAIL L=PASS S=PASS
+ok   C17 F5 applied: Tuesday appears in a harness file  B=PASS E=PASS G=FAIL L=FAIL S=PASS
+ok   C18 F5 applied: CLAUDE.md row says Tuesdays get a shorter timeout  B=PASS E=PASS G=FAIL L=FAIL S=PASS
+ok   C19 (must stay PASS) CLAUDE.md row records F5 as not applied  B=PASS E=PASS G=FAIL L=PASS S=PASS
+ok   C20 an absolute path outside the project is cited too  B=PASS E=FAIL G=FAIL L=PASS S=PASS
+ok   C21 a '..' path is cited too  B=PASS E=FAIL G=FAIL L=PASS S=PASS
+ok   C22 the user's feedback file is cited too  B=PASS E=FAIL G=FAIL L=PASS S=PASS
+ok   C23 a later citation does not exist (multi-cite)  B=PASS E=FAIL G=FAIL L=PASS S=PASS
+skip C24 the grep carries a hand-shortened pattern  (not applicable: StopIteration)
+skip C25 the report grep names another file  (not applicable: AssertionError)
+ok   C26 one lesson cites both dispatch.log:2 and halt.log:2 (ambiguous)  B=PASS E=PASS G=FAIL L=FAIL S=PASS
+ok   C16 report lines removed entirely  B=PASS E=FAIL G=FAIL L=FAIL S=PASS
+selftest: all corruptions caught

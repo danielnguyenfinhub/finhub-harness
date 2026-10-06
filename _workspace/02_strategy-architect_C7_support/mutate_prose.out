@@ -1,0 +1,217 @@
+LAY1     layer       presence only       layer table row deleted
+LAY2     layer       presence only       layer table row deleted
+LAY3     layer       presence only       layer table row deleted
+LAY4     layer       presence only       layer table row deleted
+LAY5     layer       presence only       execution/governance rule inverted
+LAY6     layer       presence only       execution/governance bullet deleted
+LAY6b    layer       presence only       execution/governance scope removed (rule applies to every pair)
+LAY7     layer       presence only       tie order reversed
+LAY8     layer       presence only       tie: earlier -> later
+LAY9     layer       presence only       tie bullet deleted
+LAY9b    layer       presence only       tie: routing example removed
+LAY10    layer       presence only       one-lesson-per-failure sentence removed
+LAY11    layer       presence only       unclassified bullet deleted
+LAY12    layer       presence only       unclassified: edit nothing removed
+LAY13    layer       presence only       unclassified: no-evidence arm removed
+LAY14    layer       presence only       exactly one -> at least one
+LAY15    layer       presence only       format: layer field dropped
+LAY16    layer       presence only       format: evidence field dropped
+LAY17    layer       presence only       format: fix none rule removed
+LAY18    layer       presence only       format: layer set widened
+LAY19    layer       presence only       layer step: evidence reference removed
+EV1      evidence    presence only       opened in this run removed
+EV2      evidence    presence only       missing-instruction sentence removed
+EV3      evidence    presence only       symptom sentence removed
+EV4      evidence    presence only       no-file lesson: unclassified -> applied
+EV5      evidence    presence only       point-in-time sentence removed
+EV6      evidence    presence only       path:line -> path
+EV7      evidence    presence only       what-supports removed
+EV8      evidence    presence only       step 6 deleted
+EV9      evidence    presence only       project-path / no .. / no feedback file sentence removed
+EV10     evidence    presence only       'asked not to open' sentence removed
+EV11     evidence    presence only       feedback file allowed
+EV12     evidence    presence only       full-path-every-time sentence removed
+BK1      backup      presence only       gate deleted
+BK2      backup      presence only       before -> after first edit
+BK3      backup      presence only       cmp dropped
+BK4      backup      presence only       existing .bak overwritten
+BK5      backup      presence only       one per file per run -> per edit
+BK6      backup      presence only       fail-closed sentence removed
+BK7      backup      presence only       new-file sentence removed
+BK8      backup      presence only       cp -p -> mv
+BK9      backup      presence only       .bak suffix changed
+BK10     backup      presence only       Phase 4 backups check deleted
+BK11     backup      presence only       Phase 5 backups bullet deleted
+BK12     backup      presence only       undo command removed
+BK13     backup      presence only       cmp result removed from report
+BK14     backup      presence only       Phase 4 'differ' -> 'match'
+BK15     backup      presence only       packaging warning removed
+SEC1     secret      presence only       step 5 intro sentence removed
+SEC2.1   secret      presence only       shape removed from the list
+SEC2.2   secret      presence only       shape removed from the list
+SEC2.3   secret      presence only       shape removed from the list
+SEC2.4   secret      presence only       shape removed from the list
+SEC2.5   secret      presence only       shape removed from the list
+SEC2.6   secret      presence only       shape removed from the list
+SEC2.7   secret      presence only       shape removed from the list
+SEC3     secret      presence only       never-copy bullet deleted
+SEC4     secret      presence only       redaction wording keeps first 4
+SEC5     secret      presence only       no-first-last clause removed
+SEC6     secret      presence only       cite-instead-of-quote removed
+SEC7     secret      presence only       Not-secrets bullet deleted
+SEC8     secret      presence only       when-unsure-redact removed
+SEC9     secret      presence only       other-credential sentence removed
+SEC10    secret      presence only       Phase 4 secrets bullet deleted
+SEC11    secret      presence only       -niE -> -nE (added-lines grep)
+SEC11b   secret      presence only       -niE -> -nE (report grep)
+SEC12    secret      presence only       'any output is a leak' -> 'ignore output'
+SEC13    secret      presence only       report-grep line deleted
+SEC13b   secret      presence only       added-lines grep line deleted
+SEC14    secret      presence only       limits paragraph removed
+SEC14b   secret      presence only       limits: 'misses' list removed
+SEC14c   secret      presence only       limits: final-message-not-grepped removed
+SEC14d   secret      presence only       limits: GNU sentence removed
+SEC15    secret      presence only       Phase 5 intro (write then grep whole) deleted
+SEC15b   secret      presence only       Phase 5: 'whole' removed
+SEC16    secret      presence only       Phase 5 secret bullet deleted
+SEC17    secret      presence only       no-shell 'not run' removed
+SEC18    secret      presence only       grep-new-file-whole removed
+SEC19    secret      presence only       do-not-shorten sentence removed
+SEC20    secret      presence only       once-the-report-exists removed
+SF1      surface     presence only       paragraph deleted
+SF2      surface     presence only       chat/Cowork 'unverified' -> supported
+SF3      surface     presence only       edit-nothing removed
+SF4      surface     presence only       backup-gate-applies-first removed
+RP1      report      presence only       LESSON bullet deleted
+AT1      attribution presence only       attribution line removed
+AT2      attribution presence only       attribution line removed
+AT3      attribution presence only       attribution line removed
+AT4      attribution presence only       attribution line removed
+AT5      attribution presence only       attribution line removed
+AT6      attribution presence only       attribution line removed
+AT7      attribution presence only       attribution line removed
+AT8      attribution presence only       attribution line removed
+AT9      attribution presence only       attribution line removed
+ERE1     pattern     BEHAVIOUR+presence  alternative removed
+ERE2     pattern     BEHAVIOUR+presence  alternative removed
+ERE3     pattern     BEHAVIOUR+presence  alternative removed
+ERE4     pattern     BEHAVIOUR+presence  alternative removed
+ERE5     pattern     BEHAVIOUR+presence  alternative removed
+ERE6     pattern     BEHAVIOUR+presence  alternative removed
+ERE7     pattern     BEHAVIOUR+presence  alternative removed
+ERE8     pattern     BEHAVIOUR+presence  alternative removed
+ERE9     pattern     BEHAVIOUR+presence  alternative removed
+ERE10    pattern     BEHAVIOUR+presence  alternative removed
+ERE11    pattern     BEHAVIOUR+presence  alternative removed
+ERE12    pattern     BEHAVIOUR+presence  alternative removed
+ERE13    pattern     BEHAVIOUR+presence  alternative removed
+ERE20    pattern     BEHAVIOUR+presence  sk 16->15
+ERE21    pattern     BEHAVIOUR+presence  sk 16->17
+ERE22    pattern     BEHAVIOUR+presence  ghp 20->19
+ERE23    pattern     BEHAVIOUR+presence  ghp 20->21
+ERE24    pattern     BEHAVIOUR+presence  github_pat 20->19
+ERE25    pattern     BEHAVIOUR+presence  github_pat 20->21
+ERE26    pattern     BEHAVIOUR+presence  AKIA 16->15
+ERE27    pattern     BEHAVIOUR+presence  AKIA 16->17
+ERE28    pattern     BEHAVIOUR+presence  sk_live 16->15
+ERE29    pattern     BEHAVIOUR+presence  sk_live 16->17
+ERE30    pattern     BEHAVIOUR+presence  sk_ drop test
+ERE31    pattern     BEHAVIOUR+presence  AIza 35->34
+ERE32    pattern     BEHAVIOUR+presence  AIza 35->36
+ERE33    pattern     BEHAVIOUR+presence  xox 10->9
+ERE34    pattern     BEHAVIOUR+presence  xox 10->11
+ERE35    pattern     BEHAVIOUR+presence  bearer 16->15
+ERE36    pattern     BEHAVIOUR+presence  bearer 16->17
+ERE37    pattern     BEHAVIOUR+presence  bearer class loses ~ (judge K03)
+ERE38    pattern     BEHAVIOUR+presence  bearer class loses =
+ERE39    pattern     BEHAVIOUR+presence  bearer class loses -
+ERE40    pattern     BEHAVIOUR+presence  bearer class loses _
+ERE41    pattern     BEHAVIOUR+presence  basic 20->19
+ERE42    pattern     BEHAVIOUR+presence  basic 20->21
+ERE43    pattern     BEHAVIOUR+presence  jwt first segment 8->7
+ERE44    pattern     BEHAVIOUR+presence  jwt first segment 8->9
+ERE45    pattern     BEHAVIOUR+presence  jwt second segment 8->7
+ERE46    pattern     BEHAVIOUR+presence  jwt second segment 8->9
+ERE47    pattern     BEHAVIOUR+presence  jwt trailing dot dropped (judge K04)
+ERE48    pattern     BEHAVIOUR+presence  jwt class loses - (judge K11)
+ERE49    pattern     BEHAVIOUR+presence  kv value 12->11
+ERE50    pattern     BEHAVIOUR+presence  kv value 12->13
+ERE51    pattern     BEHAVIOUR+presence  kv post-gap {0,3}->{0,2} (judge K10)
+ERE52    pattern     BEHAVIOUR+presence  kv post-gap {0,3}->{0,4}
+ERE53    pattern     BEHAVIOUR+presence  kv pre-gap {0,3}->{0,2}
+ERE54    pattern     BEHAVIOUR+presence  kv pre-gap {0,3}->{0,4}
+ERE55    pattern     BEHAVIOUR+presence  kv value class loses @
+ERE56    pattern     BEHAVIOUR+presence  kv value class loses !
+ERE57    pattern     BEHAVIOUR+presence  kv value class loses .
+ERE58    pattern     BEHAVIOUR+presence  kv value class loses /
+ERE59    pattern     BEHAVIOUR+presence  kv value class loses +
+ERE60    pattern     BEHAVIOUR+presence  kv value class loses *
+ERE61    pattern     BEHAVIOUR+presence  kv separator drops =
+ERE62    pattern     BEHAVIOUR+presence  kv separator drops :
+ERE63    pattern     BEHAVIOUR+presence  kv key drops password
+ERE64    pattern     BEHAVIOUR+presence  kv key drops secret
+ERE65    pattern     BEHAVIOUR+presence  kv key drops api key variants
+ERE66    pattern     BEHAVIOUR+presence  kv key drops secret_key
+ERE67    pattern     BEHAVIOUR+presence  kv key drops access
+ERE68    pattern     BEHAVIOUR+presence  word boundary removed
+ERE69    pattern     BEHAVIOUR+presence  word boundary removed
+ERE70    pattern     BEHAVIOUR+presence  word boundary removed
+ERE71    pattern     BEHAVIOUR+presence  word boundary removed
+ERE72    pattern     BEHAVIOUR+presence  word boundary removed
+ERE73    pattern     BEHAVIOUR+presence  word boundary removed
+ERE74    pattern     BEHAVIOUR+presence  word boundary removed
+ERE75    pattern     BEHAVIOUR+presence  word boundary removed
+ERE76    pattern     BEHAVIOUR+presence  gh letters drop r
+ERE77    pattern     BEHAVIOUR+presence  xox letters drop s
+ERE78    pattern     BEHAVIOUR+presence  pem: drop PRIVATE
+ERE79    pattern     BEHAVIOUR+presence  url: empty user allowed
+ERE80    pattern     BEHAVIOUR+presence  url: needs no @
+J01      judge       presence only       never-copy list loses 'a memory note'
+J02      judge       presence only       never-copy list loses 'the report'
+J03      judge       presence only       redaction keeps the length
+J04      judge       presence only       Bearer threshold 40 (text)
+J05      judge       presence only       model deletes backups itself
+J06      judge       presence only       undo is rm
+J07      judge       presence only       backup after last edit
+J08      judge       presence only       edit anyway
+J09      judge       presence only       quote the line in full
+J10      judge       presence only       grep -v
+J11      judge       presence only       report grep may print
+J12      judge       presence only       execution row says rule halted
+J13      judge       presence only       surfaces: chat does all
+J14      judge       presence only       surfaces: chat edits
+J15      judge       presence only       evidence without line
+J16      judge       presence only       evidence after lesson
+J17      judge       presence only       fix apply for unclassified
+J18      judge       presence only       one backup per run
+J19      judge       presence only       bak.2 overwritten
+J20      judge       presence only       shortened pattern fine
+J21      judge       presence only       grep before the report
+J22      judge       presence only       new file gets .bak
+J23      judge       presence only       attribution licence wrong
+J24      judge       presence only       diff -q says identical
+J25      judge       presence only       hit is false alarm
+J26      judge       presence only       when unsure keep
+J27      judge       presence only       cmp output ignored
+J29      judge       presence only       unclassified are applied
+J30      judge       presence only       tie: first named by the user
+K01      judge       BEHAVIOUR+presence  judge pattern mutant
+K02      judge       BEHAVIOUR+presence  judge pattern mutant
+K03      judge       BEHAVIOUR+presence  judge pattern mutant
+K04      judge       BEHAVIOUR+presence  judge pattern mutant
+K05      judge       BEHAVIOUR+presence  judge pattern mutant
+K06      judge       BEHAVIOUR+presence  judge pattern mutant
+K07      judge       BEHAVIOUR+presence  judge pattern mutant
+K08      judge       BEHAVIOUR+presence  judge pattern mutant
+K09      judge       BEHAVIOUR+presence  judge pattern mutant
+K10      judge       BEHAVIOUR+presence  judge pattern mutant
+K11      judge       BEHAVIOUR+presence  judge pattern mutant
+K12      judge       BEHAVIOUR+presence  judge pattern mutant
+K13      judge       BEHAVIOUR+presence  judge pattern mutant
+K14      judge       BEHAVIOUR+presence  judge pattern mutant
+PM4      judge       BEHAVIOUR+presence  judge pattern mutant
+PM16     judge       BEHAVIOUR+presence  judge pattern mutant
+K15      judge       BEHAVIOUR+presence  judge pattern mutant
+mutants 214, killed 214, survivors 0: []
+killed by a behaviour check (pattern tests): 91; killed only by presence checks (pins, grep rows): 123
+presence-only by group: {'layer': 21, 'evidence': 12, 'backup': 15, 'secret': 32, 'surface': 4, 'report': 1, 'attribution': 9, 'judge': 29} | behaviour by group: {'pattern': 74, 'judge': 17}

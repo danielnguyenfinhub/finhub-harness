@@ -1,0 +1,84 @@
+Q01 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('BASH', '-c', 'a')]
+Q02 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('bash.exe', '-c', 'a')]
+Q03 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('/bin/sh', '-c', 'id && id')]
+Q04 KILLED FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+Q05 KILLED FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+Q06 KILLED FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+Q07 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('csh', '-c', 'a')]
+Q08 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('zsh', '-c', 'a;b')]
+Q09 KILLED FAILED tests/test_gates.py::test_a_relative_symlink_to_a_shell_is_refused_from_the_gate_cwd_not_the_runner_cwd
+Q10 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('watch', 'ls')]
+Q11 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('su', '-c', 'a;b')]
+Q12 KILLED FAILED tests/test_gates.py::test_a_non_executable_file_on_path_is_skipped_like_the_child_does
+Q13 KILLED FAILED tests/test_gates.py::test_a_directory_of_the_same_name_on_path_is_skipped_like_the_child_does
+Q14 KILLED FAILED tests/test_gates.py::test_a_bare_name_is_searched_along_a_relative_or_empty_path_entry_from_the_gate_cwd[bin]
+Q15 KILLED FAILED tests/test_gates.py::test_a_relative_symlink_to_a_shell_is_refused_from_the_gate_cwd_not_the_runner_cwd
+Q16 KILLED FAILED tests/test_gates.py::test_a_relative_symlink_to_a_shell_is_refused_from_the_gate_cwd_not_the_runner_cwd
+Q21 KILLED FAILED tests/test_gates.py::test_proof_plain_string_runs_as_argv - AssertionE...
+Q23 KILLED FAILED tests/test_gates.py::test_a_relative_symlink_to_a_shell_is_refused_from_the_gate_cwd_not_the_runner_cwd
+Q25 KILLED FAILED tests/test_gates.py::test_the_root_names_are_matched_whole_so_a_sibling_folder_is_not_inside_them
+Q27 KILLED FAILED tests/test_gates.py::test_a_path_under_proc_or_dev_is_refused_with_the_runner_in_another_folder[8]
+Q28 KILLED FAILED tests/test_gates.py::test_a_path_under_proc_or_dev_is_refused_with_the_runner_in_another_folder[0]
+Q29 KILLED FAILED tests/test_gates.py::test_a_path_under_proc_or_dev_is_refused_with_the_runner_in_another_folder[0]
+Q30 SURVIVED 
+Q31 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('/usr/bin/env', 'bash')]
+Q32 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('env', 'A=1', 'bash')]
+Q33 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('/usr/bin/env', 'bash')]
+Q34 KILLED FAILED tests/test_gates.py::test_ordinary_programs_are_not_mistaken_for_shells[pytest -k bash]
+Q35 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('find', '.', '-exec', 'sh', '-c', 
+Q36 KILLED FAILED tests/test_gates.py::test_a_shell_or_a_wrapper_handed_a_shell_is_refused_in_a_non_shell_gate[argv-('timeout', '5', 'sh', '-c', 'a')]
+Q37 KILLED FAILED tests/test_gates.py::test_good_file_loads_exactly - master_finhub.eval...
+Q38 KILLED FAILED tests/test_gates.py::test_bad_file_is_refused_and_exit_2[shell-string]
+Q39 KILLED FAILED tests/test_gates.py::test_proof_shell_true_only_when_declared_and_allowed
+Q40 KILLED FAILED tests/test_gates.py::test_every_metacharacter_is_refused['\\r'] - Asse...
+Q41 KILLED FAILED tests/test_gates.py::test_every_metacharacter_is_refused['`'] - Assert...
+Q42 KILLED FAILED tests/test_gates.py::test_a_metacharacter_as_the_first_character_is_refused_too[';']
+Q43 KILLED FAILED tests/test_gates.py::test_proof_plain_string_runs_as_argv - AssertionE...
+Q44 KILLED FAILED tests/test_gates.py::test_proof_plain_string_runs_as_argv - AssertionE...
+Q45 KILLED FAILED tests/test_gates.py::test_plain_strings_become_argv[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+Q46 KILLED FAILED tests/test_gates.py::test_spawn_arguments - AssertionError: assert ('k...
+Q47 KILLED FAILED tests/test_gates.py::test_a_declared_shell_gate_still_runs_through_sh_when_allowed
+Q48 KILLED FAILED tests/test_gates.py::test_total_budget_caps_the_running_gate_and_skips_the_rest
+Q49 KILLED FAILED tests/test_gates.py::test_exit_code_mapping - AssertionError: assert (...
+Q50 KILLED FAILED tests/test_gates.py::test_timeout_outranks_an_exit_code_of_zero - Asse...
+Q51 KILLED FAILED tests/test_gates.py::test_missing_exit_status_is_an_error - AssertionE...
+Q52 KILLED FAILED tests/test_gates.py::test_a_refused_gate_spawns_nothing_and_skips_every_gate[pytest; rm x-first]
+Q53 KILLED FAILED tests/test_gates.py::test_total_budget_spent_means_not_run_never_pass
+Q54 KILLED FAILED tests/test_gates.py::test_bad_file_is_refused_and_exit_2[duplicate-id]
+Q55 KILLED FAILED tests/test_gates.py::test_bad_file_is_refused_and_exit_2[empty-list]
+Q56 KILLED FAILED tests/test_gates.py::test_gate_count_boundary - master_finhub.evals.ga...
+Q57 KILLED FAILED tests/test_gates.py::test_bad_file_is_refused_and_exit_2[version-true]
+Q58 KILLED FAILED tests/test_gates.py::test_bad_file_is_refused_and_exit_2[gate-unknown-key]
+Q59 KILLED FAILED tests/test_gates.py::test_bad_file_is_refused_and_exit_2[id-non-ascii]
+Q60 KILLED FAILED tests/test_gates.py::test_bad_file_is_refused_and_exit_2[id-65-chars]
+Q61 KILLED FAILED tests/test_gates.py::test_bad_raw_file_is_refused[duplicate-root-key]
+Q62 KILLED FAILED tests/test_gates.py::test_missing_or_directory_gate_file_exit_2[directory]
+Q63 KILLED FAILED tests/test_gates.py::test_file_size_boundary - Failed: DID NOT RAISE G...
+Q64 KILLED FAILED tests/test_gates.py::test_bad_file_is_refused_and_exit_2[timeout-zero]
+Q65 KILLED FAILED tests/test_gates.py::test_bad_file_is_refused_and_exit_2[timeout-true]
+Q66 KILLED FAILED tests/test_gates.py::test_proof_metachar_is_a_policy_error_and_nothing_spawns
+Q67 KILLED FAILED tests/test_gates.py::test_shell_names_and_wrappers_are_the_documented_lists
+Q68 KILLED FAILED tests/test_gates.py::test_a_signal_to_the_runner_kills_the_running_gate_and_is_never_a_pass[SIGTERM]
+Q69 KILLED FAILED tests/test_gates.py::test_the_handlers_unwind_with_128_plus_the_signal_and_are_restored[SIGTERM]
+Q70 KILLED FAILED tests/test_gates.py::test_a_declared_shell_gate_still_runs_through_sh_when_allowed
+Q71 KILLED FAILED tests/test_gates.py::test_plain_strings_refused[-q pytest-starts with '-']
+Q72 KILLED FAILED tests/test_gates.py::test_plain_strings_refused[A=b pytest-contains '=']
+Q73 KILLED FAILED tests/test_gates.py::test_argv_form_refused[argv5-NUL] - AssertionErro...
+Q74 KILLED FAILED tests/test_gates.py::test_argv_item_count_limit - AssertionError: asse...
+Q75 KILLED FAILED tests/test_gates.py::test_a_relative_symlink_to_a_shell_is_refused_from_the_gate_cwd_not_the_runner_cwd
+Q76 KILLED FAILED tests/test_gates.py::test_a_refusal_never_echoes_the_command_or_cwd[{"argv": ["echo"], "cwd": "needle-77"}]
+Q77 KILLED FAILED tests/test_gates.py::test_proof_shell_true_only_when_declared_and_allowed
+Q78 KILLED FAILED tests/test_gates.py::test_huge_argv_is_refused_by_the_guard_cap - Asse...
+Q79 KILLED FAILED tests/test_gates.py::test_plain_strings_refused[-empty command] - Asse...
+Q80 KILLED FAILED tests/test_gates.py::test_tails_are_redacted - AssertionError: assert ...
+Q81 KILLED FAILED tests/test_gates.py::test_the_tail_is_the_end_of_the_output - Assertio...
+Q82 KILLED FAILED tests/test_gates.py::test_capture_truncation_counts_even_when_redaction_shrinks_the_text
+Q83 KILLED FAILED tests/test_gates.py::test_a_relative_symlink_to_a_shell_is_refused_from_the_gate_cwd_not_the_runner_cwd
+Q84 KILLED FAILED tests/test_gates.py::test_good_file_loads_exactly - AssertionError: as...
+Q85 KILLED FAILED tests/test_gates.py::test_one_spawn_per_gate_in_declared_order - Asser...
+Q86 KILLED FAILED tests/test_gates.py::test_every_gate_runs_after_a_failure - assert (2,...
+Q87 KILLED FAILED tests/test_gates.py::test_other_spawn_failures_are_errors_without_the_exception_text
+Q88 KILLED FAILED tests/test_gates.py::test_a_lost_report_is_exit_2[pass-write] - Assert...
+Q89 KILLED FAILED tests/test_gates.py::test_proof_shell_true_only_when_declared_and_allowed
+Q90 SURVIVED 
+TOTAL 83 killed 81 survived ['Q30', 'Q90'] errors [] 213
