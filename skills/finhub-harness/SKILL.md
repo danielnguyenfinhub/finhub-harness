@@ -195,6 +195,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - [ ] Orchestrator Step 0 distinguishes first run, follow-up and partial re-run (and `resumeFromRunId` for Workflow mode).
 - [ ] Every `## Required connectors` line in an agent file has a row in the orchestrator's connector preflight table, and every row has a matching agent line.
 - [ ] Every worker brief has Goal, Inputs, Scope, Expected output and Report; every worker report ends in STATUS / EVIDENCE / BLOCKER form; the orchestrator re-asks once and then marks the result unverified.
+- [ ] Every section that launches writers in parallel has a `## Writers` table with one ownership label per writer (`references/write-safety.md`); `python3 scripts/check_writers.py --require` on that orchestrator exits 0 (path relative to this skill's directory); a harness with one writer needs no table and is not run with `--require`.
 - [ ] Borrowed patterns cited in an Authority List with licence tier; net-new decisions labelled with reason and test.
 - [ ] If the harness builds software: QA runs the repo's real gates after every slice and reports `RESULT:` first.
 
@@ -212,4 +213,5 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - Skill testing: `references/skill-testing-guide.md`
 - QA agents: `references/qa-agent-guide.md`
 - Authority List, adversarial audit, mutation-tested QA, honest reporting: `references/quality-gates.md`
+- Parallel writers, the ownership ladder and honest labels: `references/write-safety.md` (adapted from references/meta_harness/.agents/skills/harness/SKILL.md:133 (Apache-2.0))
 - Borrowing from other harness repos under licence rules: `references/source-enrichment.md`

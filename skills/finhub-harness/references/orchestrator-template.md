@@ -326,6 +326,8 @@ A worker starts with an empty context: it sees its brief and the files the brief
 
 Three phrases mark a brief that delegates understanding instead of stating it: "based on your findings", "based on the research" (also "the findings", "your research") and "as discussed" (also "as we discussed"). The first two come from the OpenHarness coordinator rules cited above; "as discussed" is not from any reference. `scripts/lint_harness.py` flags them as `lazy-delegation` in an agent file or a skill file that names `subagent_type`, `agentType`, `SendMessage`, `agent(`, `Agent(` or `Task(`; it reads only `agents/*.md` and `skills/**/SKILL.md`, so a brief kept in a `references/` file is not scanned. Keep the phrases out of the pasted block and out of every brief.
 
+The Scope line points a worker that writes to its row in the `## Writers` table, which holds its ownership label. Fill that table and choose the labels with `write-safety.md` before you paste the block. (adapted from references/meta_harness/.agents/skills/harness/SKILL.md:133 (Apache-2.0))
+
 The three report states and the rule that a `complete` report needs evidence come from a fresh-agent loop that validates each round's report. (adapted from references/deepseek_harness/packages/workflow/tool-ralph/src/index.ts:112 (MIT)) The single bounded re-ask, with the error fed back, comes from a task guardrail retry loop; the cap of one is ours. (adapted from references/crewai/lib/crewai/src/crewai/task.py:1327 (MIT))
 
 ````markdown
@@ -335,7 +337,7 @@ The three report states and the rule that a `complete` report needs evidence com
 
 - Goal: one sentence, and what the result is for (the purpose tells the worker how deep to go).
 - Inputs: the exact paths to read, with line numbers when the point is one place in a file. State the facts you already hold; never point at an earlier result in place of stating it.
-- Scope: what the worker may write or change, and what it must not touch. Workers running in parallel get disjoint scopes.
+- Scope: what the worker may write or change, and what it must not touch. Workers running in parallel get disjoint scopes. A worker that writes has a row in the orchestrator's `## Writers` table (batch, role, paths, ownership label); a role launched once per item has a per-item part such as `<item>` in its paths. The label is `enforced`, `workspace-enforced`, `advisory` or `serialised`; ownership counts as advisory unless something other than this brief blocks the write, so never call advisory ownership exclusive.
 - Expected output: the file under `_workspace/` and the shape of its content.
 - Report: end the reply with the Worker report below.
 
