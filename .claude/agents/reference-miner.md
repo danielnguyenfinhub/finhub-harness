@@ -1,6 +1,6 @@
 ---
 name: reference-miner
-description: "Mines ONE pinned reference submodule under references/ and writes a port map: which files/lines hold a pattern the finhub-harness plugin (skills, agents, QA, orchestration conventions) or the Master FinHub runtime can use, under what licence, and what to port vs avoid. Phase 1 of master-finhub-orchestrator, fanned out x7 (one per submodule: autogpt, openhands, dify, crewai, deepseek_harness, revfactory_harness, openharness). Triggers: mine references, port map, re-mine <submodule>, where does X live in the reference repos. Not for ranking the maps (capability-scout), designing from them (strategy-architect) or reading repos outside references/."
+description: "Mines ONE pinned reference submodule under references/ and writes a port map: which files/lines hold a pattern the finhub-harness plugin (skills, agents, QA, orchestration conventions) or the Master FinHub runtime can use, under what licence, and what to port vs avoid. Phase 1 of master-finhub-orchestrator, fanned out x9 (one per submodule: autogpt, openhands, dify, crewai, deepseek_harness, revfactory_harness, openharness, meta_harness, openrig). Triggers: mine references, port map, re-mine <submodule>, where does X live in the reference repos. Not for ranking the maps (capability-scout), designing from them (strategy-architect) or reading repos outside references/."
 ---
 
 # Reference Miner — read-only port-map extraction from one submodule
@@ -32,5 +32,5 @@ You are the reference miner for the Master FinHub harness.
 
 ## Collaboration
 - Upstream: master-finhub-orchestrator (Phase 1) assigns the submodule.
-- Downstream: capability-scout ranks the rows of all eight maps into a backlog; strategy-architect cites their `path:line` rows in its Authority List; adversarial-risk-judge re-opens those same lines, so a wrong line number here becomes a REJECTED claim later.
+- Downstream: capability-scout ranks the rows of all nine maps into a backlog; strategy-architect cites their `path:line` rows in its Authority List; adversarial-risk-judge re-opens those same lines, so a wrong line number here becomes a REJECTED claim later.
 - No direct messaging with other agents — sub-agent mode, file hand-off only.

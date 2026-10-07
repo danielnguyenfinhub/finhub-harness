@@ -2,9 +2,9 @@
 
 A new harness gets better when it borrows proven patterns instead of inventing them. Borrowing has two risks: copying something the licence forbids, and citing a pattern that is not actually in the source. This file is the procedure that avoids both. It restates the reference-mining skill (`.claude/skills/reference-mining/SKILL.md`) and its `references/licence-rules.md` and `references/port-map-schema.md`. If this file and `licence-rules.md` ever disagree, `licence-rules.md` wins, and `references/LICENSES.md` at the repo root wins over both.
 
-## 1. The six pinned references
+## 1. The nine pinned references
 
-Pinned as read-only submodules under `references/` (see `.gitmodules`; every upstream is a fork under `github.com/danielnguyenfinhub`). Tiers below are taken from `licence-rules.md`.
+Pinned as read-only submodules under `references/` (see `.gitmodules`; every upstream is a fork under `github.com/danielnguyenfinhub` except `meta_harness` and `openrig`, which pin the upstream repos). Tiers below are taken from `licence-rules.md`.
 
 | submodule | upstream | licence | constraint (verbatim) | allowed `port as` |
 |---|---|---|---|---|
@@ -16,6 +16,7 @@ Pinned as read-only submodules under `references/` (see `.gitmodules`; every ups
 | `revfactory_harness` | revfactory/harness | Apache-2.0 | Meta-skill source; installed copy lives at `~/.claude/skills/harness`. | adapt / reference |
 | `openharness` | OpenHarness (upstream org unverified; pinned fork at danielnguyenfinhub/OpenHarness) | MIT (`LICENSE`, "Copyright (c) 2025 OpenHarness Contributors") | Pinned 2026-10-02 at 9b2efd7. Port map: `references/portmaps/openharness-9b2efd7.md` (40 rows; strongest: verification-specialist prompt rules OH23-OH27, sensitive-path denylist OH31, compaction state-ledger OH37-OH40). | adapt |
 | `meta_harness` | SaehwanPark/meta-harness | Apache-2.0 (`LICENSE`) | Pinned 2026-10-05 at b6f5431 (v0.8.4). Port map: not yet mined. Attribution line required when adapting. | adapt / reference |
+| `openrig` | mvschwarz/openrig | Apache-2.0 (`LICENSE`, copyright holder named in the upstream `LICENSE`; no NOTICE file) | Pinned 2026-10-07 at 475ccab. Port maps: discipline, state; teams summarised in the shortlist. No design yet. Attribution line required when adapting. | adapt / reference |
 
 ### The two hard cases
 
