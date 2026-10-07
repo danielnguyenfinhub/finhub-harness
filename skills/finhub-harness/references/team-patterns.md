@@ -242,6 +242,29 @@ You are a [role] specialist in [domain].
 | Information needed | Split if one agent would have to handle a lot of information | Merge if little information is needed and the work is short |
 | Reusability | Split if other teams can reuse it | Consider merging if only this team uses it |
 
+### 6-1. Delegation decision gate
+
+Run the gate before the table above; the table matters only once the gate says delegate. Each question needs a written, concrete answer.
+
+| # | Question | Unclear when |
+|---|----------|--------------|
+| 1 | Which units of work are independent, or in what order do they hand off? | the units cannot be listed, or a hand-off exists but the artefact handed over is not named |
+| 2 | What does splitting buy: specialisation, parallel speed or a separate context? | the answer is "more thorough", or none of the three |
+| 3 | Which paths or resources does each worker write or test against? | two workers that run at the same time can write the same path or resource, or the paths are not named (writers that run one after another are fine) |
+| 4 | Do the tools and permissions cover every worker's task on every target surface? | a worker needs a connector, tool or permission it was not given, or the surface lacks it |
+| 5 | Who synthesises and accepts the final result? | nobody is named, or the answer is "the workers" |
+| 6 | How are partial, blocked and conflicting results reported? | the orchestrator would fill the gap with a guess or pick a winner silently |
+
+Any unclear answer: stay with one agent, which may still work through its steps in order. A dependent chain (pipeline, producer-reviewer, Mode B, a fresh-context judge, design then judge then build then QA) is concrete when each hand-off artefact is named; it delegates in sequence, and independence only decides whether calls run in parallel. An available `Agent` tool shows what is possible on a surface, not that splitting pays.
+
+Worked answers: a request that names a design, a fresh judge, a build and a QA step and the file each hands to the next passes, as a sequential team; "do it in parallel" with no units listed fails question 1 and stays with one agent.
+
+When the user explicitly asks for a team or names the roles, build what was asked: record each unclear answer under `## Delegation gate` as a stated risk and tell the user. The single-agent default applies when the user has not chosen.
+
+Of the two levels in §1-6, the middle one (root, coordinator, worker) needs a one-sentence reason in the orchestrator: the sub-domain or dependency the root cannot hold. Without it, workers report to the root.
+
+(adapted from references/meta_harness/.agents/skills/harness/references/agent-design-patterns.md:221 (Apache-2.0); adapted from references/meta_harness/docs/architecture/role-contract.md:49 (Apache-2.0))
+
 ## 7. Designing agents for reuse
 
 Before creating a new agent, compare its role with the existing agents in `.claude/agents/`. If you build or extend a harness several times, agents with the same role can pile up under different names.
