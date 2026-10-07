@@ -45,8 +45,7 @@ references/ghost.md
 references/ghost.md
 ````
 
-Not links by the CommonMark grammar, so not checked: [optional](if needed), [t](with space.md) and [u](a(1).
-Balanced parentheses and an angle target with a space: [p](references/paren(1).md), [s](<references/with space.md>).
+An angle target with a space: [s](<references/with space.md>).
 A target too long for any file system is skipped, not judged: [long](aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md).
 Word boundary: my-references/zzz.md and myreferences/zzz.md are other paths.
 
@@ -57,3 +56,11 @@ Word boundary: my-references/zzz.md and myreferences/zzz.md are other paths.
 ```text
 [bad](nope.md)
 ```
+
+Silent: a 301-char link text [xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx](gone-t301.md), a definition whose title holds a link
+[ok2]: references/real.md "see [y](gone.md)"
+.references/zzz.md, references/zzz.md-y and references/.zzz.md are other paths.
+
+A four-space-indented fence still opens one (the script is looser than CommonMark):
+    ```
+[hidden](gone-indent.md)

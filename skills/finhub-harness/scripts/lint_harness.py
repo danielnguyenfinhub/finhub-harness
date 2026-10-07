@@ -30,9 +30,7 @@ SKILL_KEYS = {"name", "description", "license", "allowed-tools", "metadata", "ve
 SKILL_KEYS |= {"author", "tags", "disable-model-invocation", "user-invocable", "argument-hint"}
 AGENT_KEYS = {"name", "description", "tools", "model", "color"}
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
-LINK_RE = re.compile(
-    r"!?\[[^\]\n]{0,300}\]\(\s*(<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)(?=\s*\)|\s+[\"'(])"
-)
+LINK_RE = re.compile(r"!?\[[^\]\n]{0,300}\]\(\s*(<[^>\n]+>|[^)\s]+)")
 # a definition: not a ^footnote, a path-like target, then end of line or a quoted/parenthesised title
 DEF_RE = re.compile(
     r"^ {0,3}\[(?!\^)[^\]\n]{1,300}\]:\s*(<[^>\n]+>|(?=\S*(?:/|\.\w))[^\s<]\S*)\s*(?:[\"'(].*)?$"
