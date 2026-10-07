@@ -1,11 +1,11 @@
 ---
 name: reference-mining
-description: "Extracts a licence-checked port map from one pinned reference submodule under references/ (autogpt, openhands, dify, crewai, deepseek_harness, revfactory_harness, openharness): which path:line holds a runtime pattern (agent loop, compaction, token meter, path containment, sandbox policy, DAG/checkpoint, delegation, SSE streaming, MCP client, eval runner) or a harness-factory pattern (agent/skill conventions, coordinator prompts, verification rules, permission checks, judge panels, hooks, memory ledgers), and whether it may be ported. Use for: mine references, build a port map, re-mine dify, where does deepseek do compaction, what can we port from crewai, what does openharness do for verification, update the port map. Not for reading arbitrary third-party repos outside references/ or for general library docs questions."
+description: "Extracts a licence-checked port map from one pinned reference submodule under references/ (autogpt, openhands, dify, crewai, deepseek_harness, revfactory_harness, openharness, meta_harness, openrig): which path:line holds a runtime pattern (agent loop, compaction, token meter, path containment, sandbox policy, DAG/checkpoint, delegation, SSE streaming, MCP client, eval runner) or a harness-factory pattern (agent/skill conventions, coordinator prompts, verification rules, permission checks, judge panels, hooks, memory ledgers), and whether it may be ported. Use for: mine references, build a port map, re-mine dify, where does deepseek do compaction, what can we port from crewai, what does openharness do for verification, update the port map. Not for reading arbitrary third-party repos outside references/ or for general library docs questions."
 ---
 
 # Reference Mining
 
-Produce one port map per submodule so the scout can rank, the architect can cite exact lines and the judge can re-open them. The port map is the only bridge between seven large repos and a small design — a wrong line number here becomes a REJECTED claim two phases later, so precision beats coverage.
+Produce one port map per submodule so the scout can rank, the architect can cite exact lines and the judge can re-open them. The port map is the only bridge between nine large repos and a small design — a wrong line number here becomes a REJECTED claim two phases later, so precision beats coverage.
 
 ## Steps
 

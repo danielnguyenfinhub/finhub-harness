@@ -30,3 +30,7 @@
 	path = references/meta_harness
 	url = https://github.com/SaehwanPark/meta-harness
 	shallow = true
+[submodule "references/openrig"]
+	path = references/openrig
+	url = https://github.com/mvschwarz/openrig
+	shallow = true
