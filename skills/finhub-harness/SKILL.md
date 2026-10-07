@@ -123,7 +123,7 @@ The orchestrator is itself a skill. Use the matching template in `references/orc
 Every orchestrator contains:
 
 - **Execution mode and target surface** at the top (per phase if mixed). If chat or Cowork is a target, a `## Single-context fallback` section (`references/surfaces.md`).
-- **Step 0 context check**: no `_workspace/` → fresh run; `_workspace/` + partial request → re-run only that agent/phase (pass prior output paths); `_workspace/` + new input → move it to `_workspace_{timestamp}/` and start fresh; Workflow mode → `resumeFromRunId` when `run_meta.json` has one.
+- **Step 0 context check**: no `_workspace/` → fresh run; `_workspace/` + partial request → re-run only that agent/phase (pass prior output paths); `_workspace/` + new input → move it to `_workspace_{timestamp}/` and start fresh; Workflow mode → `resumeFromRunId` when `run_meta.json` has one. A run of two or more phases that pass files to each other also keeps a state ledger, so a request to continue after a context reset or in a new session starts at the first unfinished phase, not the first one; a named partial re-run still wins, and the script is copied into the harness when the plugin is not installed there (`references/state-ledger.md`, script `scripts/state_ledger.py`). (adapted from references/openharness/src/openharness/autopilot/service.py:405 (MIT); adapted from references/meta_harness/.agents/skills/harness/SKILL.md:158 (Apache-2.0))
 - **Connector preflight** (only when an agent has `## Required connectors`): Step 0 ends with the preflight item from Template A Step 0 in `references/orchestrator-template.md`, holding one agent → connector row per declared line. On Claude Code a missing connector stops the run before any spawn; on chat and Cowork the orchestrator warns and asks instead, because connector listings there are deferred and an absent name is not proof (`references/surfaces.md` §4).
 - **Data hand-off**: structured return (`schema`) in A; return message in C; `SendMessage` and shared tasks in B; files for anything large or auditable, as `_workspace/{phase}_{agent}_{artifact}.{ext}`. Freeze artefacts at phase boundaries in B (template B Step 4).
 - **Delegation contract** (only when the orchestrator spawns or messages a worker, so never in a single-context fallback): paste the Delegation block from `references/orchestrator-template.md` at the step that launches workers and fill one five-line brief per worker role. The block fixes what a brief must contain, the STATUS / EVIDENCE / BLOCKER report a worker ends with, and the check the orchestrator runs before it uses a report (re-ask once, then mark the result unverified). It is prompt quality plus a check, not a guarantee.
@@ -207,6 +207,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - Worked team examples: `references/team-examples.md`
 - Workflow scripts and pitfalls: `references/workflow-recipes.md`
 - Orchestrator templates: `references/orchestrator-template.md`
+- State ledger, rebuild and resume across context resets: `references/state-ledger.md`
 - Skill writing: `references/skill-writing-guide.md`
 - Skill testing: `references/skill-testing-guide.md`
 - QA agents: `references/qa-agent-guide.md`
