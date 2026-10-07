@@ -27,7 +27,7 @@ Workflow orchestration (Mode A) runs an orchestration script through the `Workfl
 ```
 
 **Main features:**
-- `agent(prompt, opts)` runs a sub-agent. If you set a JSON Schema in `opts.schema`, it returns a structured object that has already passed schema validation. You do not need to parse it separately, and it retries automatically when the output does not match the schema. If you set `opts.agentType`, you can use a custom type defined in `.claude/agents/`. `opts.effort` adjusts reasoning effort, and `opts.isolation: 'worktree'` isolates file changes.
+- `agent(prompt, opts)` runs a sub-agent. If you set a JSON Schema in `opts.schema`, it returns a structured object that has already passed schema validation. You do not need to parse it separately, and it retries automatically when the output does not match the schema. For a phase marked `once`, leave `opts.schema` off: whether that retry repeats the agent's outside call is not known, and rule O7 of `state-ledger.md` section 3a forbids a retry of a `once` phase. (adapted from references/openrig/docs/reference/rig-spec.md:519 (Apache-2.0)) If you set `opts.agentType`, you can use a custom type defined in `.claude/agents/`. `opts.effort` adjusts reasoning effort, and `opts.isolation: 'worktree'` isolates file changes.
 - `pipeline(items, stage1, stage2, ...)` sends each item through several stages independently. There is no synchronization barrier between stages, so **use it by default for multi-stage work.**
 - `parallel(thunks)` is a synchronization barrier that waits until every task finishes. Use it only when the next stage needs **all** results of the previous stage, for example for de-duplication or for early exit based on the total count.
 - `phase(title)` / `log(msg)` group progress and tell the user what is currently running.
@@ -37,7 +37,7 @@ Workflow orchestration (Mode A) runs an orchestration script through the `Workfl
 **Characteristics:**
 - Code decides the control flow, so the same input follows the same execution structure.
 - Structured output (`schema`) lets you pass schema-conforming data between stages.
-- `resumeFromRunId` resumes an interrupted run. Unchanged `agent()` calls return cached results immediately, so a partial re-run costs little.
+- `resumeFromRunId` resumes an interrupted run. Unchanged `agent()` calls return cached results immediately, so a partial re-run costs little. A stage marked `once` that did not return a result is not resumed this way, because its call may have gone out: run `resume` and follow rule O6 of `state-ledger.md` section 3a. A `once` stage that already returned a result is cached only while its prompt is unchanged: pass such a stage file paths and its key, never the text of an upstream result, so editing an upstream stage cannot make it run again; if its prompt must change, treat it as a named re-run of that stage and ask under rule O6 of `state-ledger.md` section 3a.
 - It runs in the background and sends a notification when the work finishes.
 
 **Constraints:**

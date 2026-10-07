@@ -121,7 +121,7 @@ If the work must be re-split according to progress, use persistent agents.
 The leader registers work batches with TaskCreate (including depends_on)
 → Launch Agent(name: "migrator-1"), Agent(name: "migrator-2"), Agent(name: "migrator-3") in parallel
 → Check the result each time a completion notification arrives
-→ For a failed task, confirm the cause with SendMessage, then reassign it with TaskUpdate
+→ For a failed task, confirm the cause with SendMessage, then reassign it with TaskUpdate. A task of a phase marked `once` is not reassigned: run `resume` and follow rule O6 of `state-ledger.md` section 3a. (adapted from references/openrig/docs/reference/rig-spec.md:519 (Apache-2.0))
 → When all are done, run the integration tests
 ```
 

@@ -47,7 +47,7 @@ In `{custom or built-in}`, write the name of a custom type or a built-in type.
    - If it does and new input was received → move the existing `_workspace/` to `_workspace_{ts}/` and run fresh
 2. If you re-run only part of it and the previous run's `runId` is in `_workspace/run_meta.json`, handle it as follows.
    - Modify only that stage in the script, then resume with `resumeFromRunId`. `agent()` calls whose content
-     has not changed return cached results immediately, so the run costs little.
+     has not changed return cached results immediately, so the run costs little. A stage marked `once` that failed or was interrupted is not resumed this way: run `resume` and follow rule O6 of `state-ledger.md` section 3a.
 3. If you run fresh, receive a new `runId` and record it in `_workspace/run_meta.json`.
 4. Connector preflight. Skip this item if the table says "none". Run it before any agent, Workflow, message or task call.
 
@@ -87,9 +87,9 @@ After calling it, wait for the completion notification. Do not presume the resul
 
 | Situation | Response |
 |------|------|
-| An individual `agent()` fails (returns `null`) | Exclude it with `.filter(Boolean)` and record the number of excluded items with `log()`. State the missing items in the report as well. |
-| The whole workflow fails | Check the actual return values in the `journal`, fix only the failed stage, and resume with `resumeFromRunId`. |
-| Failures that retrying will not fix (usage limit exhausted, expired authentication, permission denied) | Do not retry or resume until the cause is cleared, because doing so only burns the remaining limit. Open the `journal` and the partial artifacts directly to confirm how far the run actually got, record the missing content as a file in `_workspace/`, and report to the user. For a usage limit, also tell the user when it resets. Once the cause is cleared, you can continue with `resumeFromRunId`. The main agent reflects only facts it confirmed directly, and does not guess at agents' judgments (for example, which material was excluded and why). |
+| An individual `agent()` fails (returns `null`) | For a phase marked `once`, do not run it again: run `resume` and follow rule O6 of `state-ledger.md` section 3a. Otherwise exclude it with `.filter(Boolean)` and record the number of excluded items with `log()`. State the missing items in the report as well. |
+| The whole workflow fails | Check the actual return values in the `journal`, fix only the failed stage, and resume with `resumeFromRunId`. A stage marked `once` is never fixed and resumed this way: run `resume` and follow rule O6 of `state-ledger.md` section 3a. |
+| Failures that retrying will not fix (usage limit exhausted, expired authentication, permission denied) | Do not retry or resume until the cause is cleared, because doing so only burns the remaining limit. Open the `journal` and the partial artifacts directly to confirm how far the run actually got, record the missing content as a file in `_workspace/`, and report to the user. For a usage limit, also tell the user when it resets. Once the cause is cleared, you can continue with `resumeFromRunId`, except a stage marked `once`: run `resume` and follow rule O6 of `state-ledger.md` section 3a. The main agent reflects only facts it confirmed directly, and does not guess at agents' judgments (for example, which material was excluded and why). |
 | The result is empty | Do not mistake it for success. Check each agent's actual return value in the `journal`. |
 | Conflicting data | Do not delete it; record it together with its sources. |
 
@@ -158,7 +158,7 @@ Then run the connector preflight from Template A Step 0, item 4, before launchin
 
 - Proceed while receiving teammates' completion and idle notifications. Check overall progress with TaskList.
 - Request a review with SendMessage({to: "{teammate-2}"}, "Review the draft at {teammate-1}'s _workspace/01_...
-  and tell me what to fix"). Pass the answer to {teammate-1} so it makes the revision.
+  and tell me what to fix"). Pass the answer to {teammate-1} so it makes the revision. Do not send a revision request to a teammate whose phase is marked `once` after its effect has gone out: rule O6 of `state-ledger.md` section 3a.
   The agent keeps the earlier conversation, so you can narrow the scope in your instruction, as in "only section 2 of that draft from earlier."
 - If teammates must discuss what they found, the leader relays the messages. Always leave artifacts as files.
 
@@ -183,7 +183,7 @@ If the collaboration has several stages, follow the same procedure at each stage
 ### Step 5: Integration
 1. Use TaskList to confirm that all tasks are finished.
 2. Read each artifact with Read and apply the {integration/verification logic}.
-3. Just before producing the final artifact, recompute the hashes, as with `shasum -c _workspace/freeze_{phase}.sha`, to confirm that the frozen artifacts have not changed. If a hash differs or a new version file has appeared, check what changed and decide whether to re-run the stages that read the content as it was before the change.
+3. Just before producing the final artifact, recompute the hashes, as with `shasum -c _workspace/freeze_{phase}.sha`, to confirm that the frozen artifacts have not changed. If a hash differs or a new version file has appeared, check what changed and decide whether to re-run the stages that read the content as it was before the change, except a stage marked `once`, which is never re-run to refresh it: tell the user its effect used the earlier content (rule O6 of `state-ledger.md` section 3a).
 4. Produce the final artifact at `{output-path}/{filename}`.
 
 ### Step 6: Wrap-up
@@ -195,7 +195,7 @@ If the collaboration has several stages, follow the same procedure at each stage
 
 | Situation | Response |
 |------|------|
-| A teammate does not respond or has stopped | Check status with SendMessage and instruct it again. If that still fails, launch the same custom type under a new name and pass the needed work context in the prompt. |
+| A teammate does not respond or has stopped | For a phase marked `once`, do not instruct it again or launch a replacement: run `resume` and follow rule O6 of `state-ledger.md` section 3a. Otherwise check status with SendMessage and instruct it again. If that still fails, launch the same custom type under a new name and pass the needed work context in the prompt. |
 | The cause of the stop is usage limit exhausted, expired authentication, or permission denied | Retrying gives the same result, so do not instruct again or launch a replacement agent. Open the partial artifacts directly to confirm how far the work actually got, record the missing content as a file in `_workspace/`, and report to the user. For a usage limit, also tell the user when it resets. The leader reflects only facts it confirmed directly, and does not guess at agents' judgments (for example, which material was excluded and why). |
 | More than half of the teammates failed | Tell the user and confirm whether to continue. |
 | The time limit was exceeded | Proceed with the results received so far, and state in the report the areas that were not finished. |
@@ -211,7 +211,7 @@ If the collaboration has several stages, follow the same procedure at each stage
 
 ### Error flow
 1. In Step 3, {teammate-2} does not respond.
-2. Check status with SendMessage and instruct it again. If that still fails, launch a replacement agent named "{teammate-2}b" and pass it the existing artifact paths.
+2. Check status with SendMessage and instruct it again. If that still fails, launch a replacement agent named "{teammate-2}b" and pass it the existing artifact paths. (For a teammate whose phase is marked `once`, do neither: run `resume` and follow rule O6 of `state-ledger.md` section 3a.)
 3. Write "{teammate-2} area: partially reworked" in the final report.
 ```
 
@@ -274,7 +274,7 @@ Wait for the completion notifications. The main agent does not repeat a search i
 Leave `_workspace/` and summarize the results for the user.
 
 ## Error handling
-- If one agent fails, retry once. If it fails again, state the missing piece and continue.
+- If one agent fails, retry once, except a phase marked `once` (never retried: run `resume` and follow rule O6 of `state-ledger.md` section 3a). If it fails again, state the missing piece and continue.
 - Do not retry failures that give the same result when retried, such as usage limit exhausted, expired authentication, or permission denied. Open the partial artifacts directly to confirm how far the work actually got, record the missing content as a file in `_workspace/`, and report to the user. For a usage limit, also tell the user when it resets. The main agent reflects only facts it confirmed directly, and does not guess at agents' judgments.
 - If more than half of the agents fail, tell the user and confirm whether to continue.
 - A worker whose valid report is `partial` or `blocked`: keep what it returned, name the missing part in the final artifact and mark the result incomplete. Do not cover the missing part with a guess.
@@ -327,6 +327,8 @@ A worker starts with an empty context: it sees its brief and the files the brief
 Three phrases mark a brief that delegates understanding instead of stating it: "based on your findings", "based on the research" (also "the findings", "your research") and "as discussed" (also "as we discussed"). The first two come from the OpenHarness coordinator rules cited above; "as discussed" is not from any reference. `scripts/lint_harness.py` flags them as `lazy-delegation` in an agent file or a skill file that names `subagent_type`, `agentType`, `SendMessage`, `agent(`, `Agent(` or `Task(`; it reads only `agents/*.md` and `skills/**/SKILL.md`, so a brief kept in a `references/` file is not scanned. Keep the phrases out of the pasted block and out of every brief.
 
 The Scope line points a worker that writes to its row in the `## Writers` table, which holds its ownership label. Fill that table and choose the labels with `write-safety.md` before you paste the block. (adapted from references/meta_harness/.agents/skills/harness/SKILL.md:133 (Apache-2.0))
+
+A phase marked `once` in the `## Handoff files` table (`state-ledger.md` section 3a) changes the Expected output line of its brief: the worker saves the file with its first section (what it will do, to whom, and a key built from the phase inputs, never from the time of the attempt) before its first outside call, passes the key to the connector when the connector takes one, and adds the last section only after the call is confirmed. A re-run that the user approves after a stop carries the same key. A `once` phase is also outside the retry-once rule of the Error handling section and outside the single re-ask of the Delegating block below: after a worker error, a timeout, an invalid report or `STATUS: partial`, do not launch or ask that worker again; run `state_ledger.py resume` and follow rule O6 of `state-ledger.md` section 3a (rule O7). Write that exception into the orchestrator's error table and into the step that checks reports, and never start a `once` phase from the `NEXT` line of `rebuild`, which prints no `HALF-DONE` line. (adapted from references/openrig/docs/as-built/architecture/coordination-primitive.md:46 (Apache-2.0))
 
 The three report states and the rule that a `complete` report needs evidence come from a fresh-agent loop that validates each round's report. (adapted from references/deepseek_harness/packages/workflow/tool-ralph/src/index.ts:112 (MIT)) The single bounded re-ask, with the error fed back, comes from a task guardrail retry loop; the cap of one is ours. (adapted from references/crewai/lib/crewai/src/crewai/task.py:1327 (MIT))
 
