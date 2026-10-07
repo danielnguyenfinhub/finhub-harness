@@ -52,6 +52,8 @@ Independent tasks are processed at the same time, and the results are merged int
 
 **Caution:** How you merge the results decides overall quality.
 
+**Write safety:** If the specialists write files, each one gets an ownership label and a row in a `## Writers` table, and two writers whose paths overlap never run in the same batch unless at least one works in its own worktree and the orchestrator merges afterwards. Having the ability to launch workers is not a reason to run them together. Rules and labels: `write-safety.md`. (adapted from references/meta_harness/docs/architecture/runtime-capabilities.md:61 (Apache-2.0))
+
 **Execution mode v2 recommends:** Consider Workflow orchestration (Mode A) first. Define the list of perspectives as an array, send it through `pipeline()`, receive results that match the `schema`, and merge them in code. Use `parallel()` only when you must collect all results and then de-duplicate them. In that case, every parallel call finishes before the next stage begins. For research with two to four investigators who need to share what they find in real time, Persistent agent collaboration (Mode B) also fits.
 
 ### 1-3. Expert pool

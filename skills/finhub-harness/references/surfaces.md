@@ -125,6 +125,18 @@ Rule of thumb: pick the strongest mode the surface supports, write the weaker on
 | `_workspace/` handoff files | used | inline blocks by default; where file creation is enabled, write to the outputs folder and present the file (observed 2026-10-03) | unverified |
 | Change history in `CLAUDE.md` | used | believed unavailable (unverified); keep it in the skill or ask the user to store it | unverified |
 
+## 3c. Parallel writers by surface
+
+When two or more workers can write files, each gets an ownership label from `write-safety.md`. This table says which labels a surface can truthfully claim. (adapted from references/meta_harness/docs/architecture/runtime-capabilities.md:46 (Apache-2.0))
+
+| Surface | Labels it can claim | Basis |
+|---------|---------------------|-------|
+| Claude Code | `workspace-enforced` when the worker has its own worktree (`isolation: 'worktree'`; documented for Workflow `agent()` and for custom types, unverified for a plain `Agent` call); `advisory` with disjoint paths; `serialised`. `enforced` only if a path-scoped permission rule or a hook that denies the path is in place and shown to work (hooks exist on Code, section 4, but this skill ships none), which a generated harness cannot assume. | `execution-modes.md` section 1, `team-patterns.md` section 4 |
+| Claude chat | `serialised` only. One context plays each role in turn, and no sub-agent tool was exposed on the observed setup, so nothing isolates or fences a writer there (the chat's own report, one account and client). | Section 2 degradation rule 4; observed 2026-10-03 |
+| Claude Cowork | `serialised`, unless sub-agents are confirmed. Unverified — confirm in that surface before relying on it. | Section 3 |
+
+A Single-context fallback carries no Writers table. It says in one line that every role pass is `serialised`, and the final report names the parallelism that was lost (section 2, rule 5).
+
 ## 4. Primitive by surface
 
 Legend: ✓ available, degraded (works with reduced guarantees), ✗ not available, unverified (confirm in that surface before relying on it).

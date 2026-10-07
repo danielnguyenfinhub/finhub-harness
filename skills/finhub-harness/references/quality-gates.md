@@ -276,6 +276,8 @@ Every number gets its source and the date it was read. Write "`624 passed, 9 ski
 
 ## 5. Checklist to paste into a QA agent definition
 
+The Writers bullet is adapted from references/meta_harness/.agents/skills/harness/SKILL.md:133 (Apache-2.0); its labels are defined in `write-safety.md`.
+
 ```markdown
 ## Quality gates (non-negotiable)
 
@@ -295,6 +297,7 @@ Every number gets its source and the date it was read. Write "`624 passed, 9 ski
       Every gate row carries its observed output, the summary line on success included.
 - [ ] Re-run timing and concurrency tests 10 times. Check for stray processes and scratch files.
 - [ ] Sweep touched files for real client data, secrets and personal identifiers.
+- [ ] If the harness runs writers in parallel, read its `## Writers` table: no two `enforced` or `advisory` rows in one batch share a path, no `advisory` row is called exclusive, and every `enforced` or `workspace-enforced` row names a mechanism you opened and saw block the write. A label you cannot show is `advisory`.
 - [ ] Report; do not fix. Give each defect as file:line, expected versus actual.
 - [ ] On a re-run, re-check every previously listed defect plus a full gate run.
 - [ ] After one builder retry, if still FAIL: stop, and record the gap with verbatim output.
