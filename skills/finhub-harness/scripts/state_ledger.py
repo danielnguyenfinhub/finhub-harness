@@ -1,8 +1,15 @@
 """Rebuild a harness state ledger from the files on disk and say where a run resumes.
 
 Usage: state_ledger.py rebuild|resume PLAN [--base DIR] [--ledger FILE]. Run from the project root.
-Exit 0 ok, start or resume; 3 stop (done, blocked or unreadable ledger); 2 bad plan or usage.
-Rules R1-R9 are in skills/finhub-harness/references/state-ledger.md.
+Exit 0 ok, start or resume; 3 stop (done, blocked, unreadable ledger or a half-done run-once phase);
+2 bad plan or usage.
+Rules R1-R10 and O1-O7 are in skills/finhub-harness/references/state-ledger.md.
+A phase marked `once` in an optional sixth column `replay` of the Handoff files table stops with
+exit 3 and `stop-confirm` when its file is half written or has vanished since the last ledger, instead
+of being run again; the idea that
+a step with an outside effect must not be replayed on resume, and a failed resume that stops and
+asks, are adapted from references/openrig/docs/reference/rig-spec.md:519 and
+references/openrig/docs/as-built/architecture/architecture-rules-and-event-system.md:74 (Apache-2.0).
 Field names adapted from references/meta_harness/.agents/skills/harness/SKILL.md:158 and
 references/meta_harness/scripts/audit_harness.py:61 (Apache-2.0); a small state file rebuilt on
 every change, from references/openharness/src/openharness/autopilot/service.py:405 (MIT); state
@@ -25,6 +32,8 @@ from collections.abc import Iterator
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 PLAN_COLS = ("phase", "producer", "consumer", "path", "sections")
+# adapted from references/openrig/docs/reference/rig-spec.md:519 (Apache-2.0)
+REPLAY = ("safe", "once", "-")  # the optional sixth plan column; `-` and a missing column mean safe
 COLS = PLAN_COLS + ("completion", "note")
 STATES = ("pending", "partial", "complete", "blocked")
 Row = dict[str, str]
@@ -55,12 +64,15 @@ def cells(line: str) -> list[str] | None:
     return [c.strip().strip("`") for c in s.strip("|").split("|")]
 
 
-def table(text: str, cols: tuple[str, ...]) -> list[Row] | None:
-    """Rows of the first table whose header is exactly `cols`; None when there is none."""
+def table(text: str, cols: tuple[str, ...], extra: str = "") -> list[Row] | None:
+    """Rows of the first table whose header is `cols`, or `cols` plus `extra`; None when none."""
+    heads = [[*cols]] + ([[*cols, extra]] if extra else [])
     it = lines(text)
     for line in it:
-        if cells(line) != list(cols):
+        got = cells(line)
+        if got not in heads:
             continue
+        cols = tuple(got)  # the header that matched, with or without the optional column
         if not set(next(it, "x").strip()) <= set("|-: "):
             raise ValueError("table header is not followed by a separator row")
         rows: list[Row] = []
@@ -87,9 +99,11 @@ def unique(rows: list[Row]) -> None:
 
 
 def parse_plan(text: str) -> list[Row]:
-    rows = table(text, PLAN_COLS)
+    rows = table(text, PLAN_COLS, "replay")
     if rows is None:
-        raise ValueError("no Handoff files table with columns " + " | ".join(PLAN_COLS))
+        raise ValueError(
+            "no Handoff files table with columns " + " | ".join((*PLAN_COLS, "[replay]"))
+        )
     if len(rows) < 2:
         raise ValueError("a ledger needs at least two phases; a single phase has nothing to resume")
     unique(rows)
@@ -101,6 +115,11 @@ def parse_plan(text: str) -> list[Row]:
             )
         if r["sections"] != "-" and "" in [s.strip() for s in r["sections"].split(";")]:
             raise ValueError(f"empty section name in {r['sections']!r}")
+        r.setdefault("replay", "-")
+        if r["replay"] not in REPLAY:
+            raise ValueError(f"replay must be one of {REPLAY}, not {r['replay']!r}")
+        if r["replay"] == "once" and len({x.strip() for x in r["sections"].split(";")}) < 2:
+            raise ValueError(f"phase {r['phase']} is once: name an intent and a different result")
     return rows
 
 
@@ -161,9 +180,20 @@ def judge(path: Path, sections: str) -> tuple[str, str]:
 def rebuild(plan: list[Row], base: Path, old: list[Row] | None) -> list[Row]:
     """Ledger rows from the files; only a blocked row of the old ledger is carried over."""
     held = {r["phase"]: r["note"] for r in old or [] if r["completion"] == "blocked"}
+    seen = {r["phase"]: r["completion"] for r in old or []}
     rows = []
     for p in plan:
         state, note = judge(base / p["path"], p["sections"])
+        if state == "pending" and p["replay"] == "once":
+            try:  # lstat, not is_file or lexists: Python 3.14 swallows errors in those
+                os.lstat(base / p["path"])
+            except (FileNotFoundError, NotADirectoryError):
+                if seen.get(p["phase"], "pending") != "pending":
+                    state, note = "partial", f"file gone; the ledger had it {seen[p['phase']]}"
+            except OSError as e:
+                state, note = "partial", f"unreadable: {e}"
+            else:
+                state, note = "partial", "something is there that is not a regular file"
         if state != "complete" and p["phase"] in held:
             state, note = "blocked", held[p["phase"]]
         rows.append({**p, "completion": state, "note": note})
@@ -238,6 +268,7 @@ def main(argv: list[str]) -> int:
             save(ledger, text)
     except OSError as e:
         state = f"unwritable: {e}" if not corrupt else f"{state}; unwritable: {e}"
+    once = {p["phase"] for p in plan if p["replay"] == "once"}
     unfinished = [r for r in rows if r["completion"] != "complete"]
     first = unfinished[0] if unfinished else None
     if a.cmd == "rebuild":
@@ -245,6 +276,9 @@ def main(argv: list[str]) -> int:
         return 0
     if first is None:
         act, why = "stop-done", "every phase is complete"
+    # adapted from references/openrig/docs/as-built/architecture/architecture-rules-and-event-system.md:74 (Apache-2.0)
+    elif first["phase"] in once and first["completion"] == "partial":
+        act, why = "stop-confirm", f"run-once phase, half done ({first['note']}); ask the user"
     elif corrupt:
         act, why = (
             "stop-unreadable",
@@ -254,6 +288,8 @@ def main(argv: list[str]) -> int:
         act, why = "stop-blocked", first["note"]
     else:
         act, why = ("resume" if first["completion"] == "partial" else "start"), first["note"]
+    if act == "stop-blocked" and first and first["phase"] in once:
+        why += "; run-once phase, its effect may have happened"
     seen = {r["phase"]: r["completion"] for r in old or []}
     drift = ["plan changed, so no blocker is carried"] if changed else []
     drift += ["ledger unreadable, so any blocker is unknown"] if corrupt else []
@@ -270,6 +306,13 @@ def main(argv: list[str]) -> int:
     print(f"ACTION: {act}\nPHASE: {first['phase'] if first else '-'}")
     print(f"PATH: {first['path'] if first else '-'}\nREASON: {why}")
     print("\n".join(f"DRIFT: {d}" for d in drift) or "DRIFT: -")
+    if once:
+        half = [
+            r["phase"]
+            for r in rows
+            if r["phase"] in once and r["completion"] in ("partial", "blocked")
+        ]
+        print("HALF-DONE: " + (", ".join(half) or "-"))
     print(
         "SUSPECT: " + (", ".join(r["phase"] for r in after if r["completion"] == "complete") or "-")
     )

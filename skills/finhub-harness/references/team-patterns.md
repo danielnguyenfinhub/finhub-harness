@@ -82,7 +82,7 @@ A producing agent and a verifying agent work as a pair.
 
 **Fits when:** the quality of the artifact must be verified and an objective pass criterion can be set
 
-**Caution:** Set a maximum retry count of two to three so that verification and revision do not repeat endlessly.
+**Caution:** Set a maximum retry count of two to three so that verification and revision do not repeat endlessly. A phase marked `once` is not part of this loop: verify before it runs, and after a failure run `resume` and follow rule O6 of `state-ledger.md` section 3a. (adapted from references/openrig/docs/reference/rig-spec.md:519 (Apache-2.0))
 
 **Execution mode v2 recommends:** If the verification criteria can be expressed in code, use Workflow orchestration (Mode A). Run parallel verification for each item found by the adversarial verification pattern below. If subjective judgments must be reconciled, launch the producer and verifier as a **persistent agent pair** with names and exchange feedback through SendMessage. The producer keeps the earlier conversation, so it can correct exactly the parts that were flagged.
 
@@ -100,7 +100,7 @@ A central agent manages work state and divides the work according to progress.
 
 **Difference from fan-out:** Fan-out decides the distribution before the work starts. A supervisor watches progress and redistributes the work.
 
-**Caution:** If you split the work too finely, the supervisor must redistribute often and becomes a bottleneck.
+**Caution:** If you split the work too finely, the supervisor must redistribute often and becomes a bottleneck. A phase marked `once` is never redistributed after a failure: run `resume` and follow rule O6 of `state-ledger.md` section 3a.
 
 **Execution mode v2 recommends:** Use Persistent agent collaboration (Mode B). The main agent as leader registers work with `TaskCreate`, receives workers' completion notifications, and redistributes the work with `SendMessage` and `TaskUpdate`. If the task list can be fixed in advance and the distribution procedure can be written as code, switch to Workflow orchestration (Mode A). In that case the supervisor has no judgments left to make.
 
