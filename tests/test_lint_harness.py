@@ -244,6 +244,25 @@ def test_links_bad_fixture_names_every_seeded_defect() -> None:
         broken + "broken-link line 12: 'gone-def.md' does not exist",
         broken + "broken-link line 19: 'after-fence.md' does not exist",
         broken + "broken-link line 20: '<missing angle.md>' does not exist",
+        broken + "broken-link line 21: 'gone(1' does not exist",  # r2 form: cut at the first ')'
+        broken + "broken-link line 22: 'gone((2' does not exist",  # D2: depth 2 is cut, not skipped
+        broken + "broken-link line 23: 'gone-t1.md' does not exist",
+        broken + "broken-link line 23: 'gone-t2.md' does not exist",
+        broken + "broken-link line 23: 'gone-t3.md' does not exist",
+        broken + "broken-link line 24: 'gone-p1.md' does not exist",
+        broken + "broken-link line 24: 'gone-p2.md' does not exist",
+        broken + "broken-link line 25: 'gone-t300.md' does not exist",  # 300-char link text
+        broken + "broken-link line 26: 'gone-d3.md' does not exist",  # definition, 3-space indent
+        broken + "broken-link line 27: 'gone-d4.md' does not exist",  # definition with a title
+        broken + "broken-link line 28: 'gone-d300.md' does not exist",  # 300-char definition label
+        broken + "broken-link line 29: '`gone-bt.md`' does not exist",  # definition keeps its span
+        broken + "bundled-ref line 30: references/a-b.md does not exist",
+        broken + "broken-link line 31: 'gone-nospace.md' does not exist",  # no space after ]:
+        broken + "broken-link line 33: 'gone-dbl.md' does not exist",  # (line 32 stays silent)
+        broken + "broken-link line 37: 'gone-tab.md' does not exist",  # fence closed by a tab
+        broken + "bundled-ref line 38: references/ghost3.mp3 does not exist",
+        "skills/broken/nested/SKILL.md: broken-link line 3: 'gone-nested.md' does not exist",
+        "agents/twin-b.md: broken-link line 7: 'gone-agent.md' does not exist",
         broken + "bundled-ref line 14: references/ghost.md does not exist",
         broken + "bundled-ref line 14: references/ghost2.md does not exist",
         "skills/dup-two/SKILL.md: dir-name",
@@ -269,6 +288,66 @@ def test_bundled_reference_resolves_in_the_skill_dir_or_an_ancestor_up_to_the_ro
     (tmp_path / "proj/skills/s/references").mkdir()
     (tmp_path / "proj/skills/s/references/nope.md").write_text("x", encoding="utf-8")
     assert lint(tmp_path / "proj")[0] == 0  # now found in the skill's own references/
+
+
+def test_unclosed_angle_starts_are_linear(tmp_path: Path) -> None:
+    """D3: 60,000 chars of `[a](<` took seconds when each start scanned on for a closing `>`."""
+    skill = tmp_path / "skills/s/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    head = '---\nname: s\ndescription: "S. Use to re-run."\n---\n'
+    skill.write_text(head + "[a](<" * 12000 + "\n", encoding="utf-8")
+    start = time.monotonic()
+    code, out = lint(tmp_path)
+    assert code in (0, 1) and "Traceback" not in out, out[-300:]
+    assert time.monotonic() - start < 1.0
+
+
+def test_bundled_walk_stops_at_the_root_parent(tmp_path: Path) -> None:
+    """A references/ file two levels above the lint root is not found (the walk ends at root.parent)."""
+    (tmp_path / "references").mkdir()
+    (tmp_path / "references/far.md").write_text("x", encoding="utf-8")
+    skill = tmp_path / "up/root/skills/s/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    head = '---\nname: s\ndescription: "S. Use to re-run."\n---\n'
+    skill.write_text(head + "see references/far.md\n", encoding="utf-8")
+    assert "bundled-ref" in lint(tmp_path / "up/root")[1]
+    old = "stop = root.resolve().parent"
+    assert "bundled-ref" not in _run_mutant(tmp_path, old, old + ".parent", tmp_path / "up/root")
+
+
+def _symlinked_skill(tmp_path: Path, real: str, body: str) -> Path:
+    """proj/skills/s is a symlink to a dir outside the lint root; returns the lint root."""
+    target = tmp_path / real
+    target.mkdir(parents=True)
+    head = '---\nname: s\ndescription: "S. Use to re-run."\n---\n'
+    (target / "SKILL.md").write_text(head + body, encoding="utf-8")
+    root = tmp_path / "a/b/proj"
+    (root / "skills").mkdir(parents=True)
+    (root / "skills/s").symlink_to(target, target_is_directory=True)
+    return root
+
+
+def test_symlinked_skill_dir_outside_the_root_is_reported_and_terminates(tmp_path: Path) -> None:
+    """The walk from a real dir outside root.parent must end at the filesystem root, not loop."""
+    root = _symlinked_skill(tmp_path, "out/s", "see references/ghost.md\n")
+    run = subprocess.run(
+        [sys.executable, str(LINT), str(root)],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert run.returncode == 1 and "references/ghost.md does not exist" in run.stdout, run.stdout
+
+
+def test_bundled_walk_starts_from_the_resolved_skill_dir(tmp_path: Path) -> None:
+    """references/ above the symlink's real dir counts; above the link's own path it would not."""
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real/references").mkdir()
+    (tmp_path / "real/references/shared.md").write_text("x", encoding="utf-8")
+    root = _symlinked_skill(tmp_path, "real/s", "see references/shared.md\n")
+    code, out = lint(root)
+    assert code == 0 and "bundled-ref" not in out, out
 
 
 def test_this_repo_links_and_bundled_refs_are_clean() -> None:
@@ -377,16 +456,53 @@ MUTANTS: list[tuple[str, str, str, Path | str | None, str]] = [
         OK_LINKS,
         "broken-link",
     ),
-    ("angle target", r"(<[^>\n]+>|(?:[^()\s]|", r"((?:[^()\s]|", BAD_LINKS, "missing angle.md"),
+    ("angle target", r"(<[^>\n]+>|[^)\s]+)", r"([^)\s]+)", BAD_LINKS, "missing angle.md"),
     ("lookbehind hyphen", r"(?<![\w./-])", r"(?<![\w./])", OK_LINKS, "bundled-ref"),
     ("lookbehind word", r"(?<![\w./-])", r"(?<![./-])", OK_LINKS, "bundled-ref"),
-    ("definition indent", r"^ {0,3}\[(?!", r"^\s*\[(?!", OK_LINKS, "broken-link"),
+    ("lookbehind dot", r"(?<![\w./-])", r"(?<![\w/-])", OK_LINKS, "bundled-ref"),
+    ("lookahead hyphen", r"(?![\w/-])", r"(?![\w/])", OK_LINKS, "bundled-ref"),
     (
-        "link grammar",
-        r"""(?:[^()\s]|\([^()\s]*\))+)(?=\s*\)|\s+[\"'(])""",
-        r"[^)\s]+)",
+        "name start dot",
+        r"references/([A-Za-z0-9_][",
+        r"references/([A-Za-z0-9_.][",
+        OK_LINKS,
+        "bundled-ref",
+    ),
+    ("name hyphen", r"[A-Za-z0-9_.-]*\.", r"[A-Za-z0-9_.]*\.", BAD_LINKS, "references/a-b.md"),
+    ("definition indent", r"^ {0,3}\[(?!", r"^\s*\[(?!", OK_LINKS, "broken-link"),
+    ("definition indent 3", r"^ {0,3}\[(?!", r"^ {0,2}\[(?!", BAD_LINKS, "gone-d3.md"),
+    ("definition title", r"(?:[\"'(].*)?$", "$", BAD_LINKS, "gone-d4.md"),
+    ("definition label", r"{1,300}", r"{1,299}", BAD_LINKS, "gone-d300.md"),
+    ("link text 299", r"{0,300}\]\(", r"{0,299}\]\(", BAD_LINKS, "gone-t300.md"),
+    ("link text 301", r"{0,300}\]\(", r"{0,301}\]\(", OK_LINKS, "broken-link"),
+    ("link text unbounded", r"{0,300}\]\(", r"*\]\(", OK_LINKS, "broken-link"),
+    (
+        "definition on stripped line",
+        "(m := DEF_RE.match(line))",
+        '(m := DEF_RE.match(CODE_RE.sub("", line)))',
+        BAD_LINKS,
+        "gone-bt.md",
+    ),
+    (
+        "links also on definition lines",
+        '[m.group(1)] if (m := DEF_RE.match(line)) else LINK_RE.findall(CODE_RE.sub("", line))',
+        '([m.group(1)] if (m := DEF_RE.match(line)) else []) + LINK_RE.findall(CODE_RE.sub("", line))',
         OK_LINKS,
         "broken-link",
+    ),
+    (
+        "links in agents",
+        "        check_links(path, text)\n        if path in skills:\n",
+        "        if path in skills:\n            check_links(path, text)\n",
+        BAD_LINKS,
+        "gone-agent.md",
+    ),
+    (
+        "links in nested skills",
+        "        check_links(path, text)\n",
+        "        if path in skills or path in agents:\n            check_links(path, text)\n",
+        BAD_LINKS,
+        "gone-nested.md",
     ),
 ]
 
