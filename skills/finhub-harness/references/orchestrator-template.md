@@ -227,6 +227,23 @@ description: "Delegates independent {domain} tasks to sub-agents. Use it when th
 
 ## Execution mode: Sub-agent delegation (Mode C)
 
+## Delegation gate
+Answer before Step 1, one line each. Any unclear answer means a single agent: skip the step that spawns workers, do the work in this context, and replace the `## Execution mode` heading above with `## Execution mode: Single agent` and the description's "Delegates ... to sub-agents" wording with a description of the work itself. If the user explicitly asked for a team, build it anyway and fill the Risks line.
+- Independent units, or the order they hand off (name each hand-off artefact):
+- What splitting buys (specialisation, parallel speed or a separate context):
+- Write ownership (paths or resources per worker):
+- Tools and permissions per worker, on each target surface:
+- Synthesis owner and acceptance check:
+- Partial, blocked and conflicting results are reported as:
+- Outcome: single agent | delegate
+- Risks (only when the user explicitly asked for a team): each unclear answer, stated
+
+## Worker delegation notes (optional; keep only when the outcome is delegate)
+- Eligible tasks:
+- Forbidden overlaps (paths, resources, topics):
+- Synthesis owner and what they accept:
+- Conflicting-result rule:
+
 ## Work procedure
 
 ### Step 0: Check existing work
@@ -237,6 +254,8 @@ Then run the connector preflight from Template A Step 0, item 4, before spawning
 Analyze the input and create `_workspace/`.
 
 ### Step 2: Parallel execution
+Run this step only when the gate's outcome is delegate; dependent hand-offs are called one after another, each with the prior artefact path. For a single agent, the main agent does the work in this context (an agent file, if there is one, is its role brief) and Steps 3 and 4 apply to its own output.
+
 Call the Agent tool N times at the same time in one message. They run in the background by default.
 
 | Agent | `subagent_type` | Input | Artifact |
@@ -258,7 +277,11 @@ Leave `_workspace/` and summarize the results for the user.
 - If one agent fails, retry once. If it fails again, state the missing piece and continue.
 - Do not retry failures that give the same result when retried, such as usage limit exhausted, expired authentication, or permission denied. Open the partial artifacts directly to confirm how far the work actually got, record the missing content as a file in `_workspace/`, and report to the user. For a usage limit, also tell the user when it resets. The main agent reflects only facts it confirmed directly, and does not guess at agents' judgments.
 - If more than half of the agents fail, tell the user and confirm whether to continue.
+- A worker whose valid report is `partial` or `blocked`: keep what it returned, name the missing part in the final artifact and mark the result incomplete. Do not cover the missing part with a guess.
+- A synthesis input that never arrives (a worker failed twice, or a branch has no report): mark each missing branch as missing in the final artifact and in the report. Do not write text that implies coverage the run lacks.
 ```
+
+Sources for the gate block, the notes block and the two error rows above: (adapted from references/meta_harness/.agents/skills/harness/references/orchestrator-template.md:78 (Apache-2.0); adapted from references/meta_harness/docs/architecture/handoffs.md:34 (Apache-2.0)).
 
 ---
 

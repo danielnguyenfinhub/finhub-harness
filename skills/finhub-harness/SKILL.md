@@ -59,6 +59,19 @@ Then:
 
 ### Step 2: Choose the execution mode and the team pattern
 
+#### 2-0. Delegation gate (first; the default is one agent)
+
+Before choosing a mode or a pattern, answer six questions in one line each: (1) which units of work are independent, or in what order they hand off, (2) what splitting buys: specialisation, parallel speed or a separate context, (3) which paths or resources each worker writes, (4) whether every worker's tools and permissions cover its task on the target surface, (5) who synthesises and accepts the result, (6) how a partial, blocked or conflicting result is reported. `references/team-patterns.md` §6-1 says when an answer counts as unclear.
+
+- If any answer is missing or unclear, the outcome is **single agent**: the main context does the work, there is at most one agent file, and no Mode A or B and no parallel workers are used. Having an `Agent` or `Workflow` tool is not a reason to delegate. For an extension, "at most one agent file" counts the new role only: the new role then becomes a step of the main context or of an existing agent, not a new file.
+- Only when all six answers are concrete is the outcome **delegate**; then 2-1 to 2-3 and the Step 5 scale rule size the team. When extending a harness, run the gate again for the new role alone.
+- A dependent chain (pipeline, producer-reviewer, Mode B, a fresh-context judge, design then judge then build then QA) is concrete when each hand-off artefact is named; it delegates in sequence, and independence only decides whether calls run in parallel.
+- When the user explicitly asks for a team or names the roles, build what was asked: write each unclear answer under `## Delegation gate` as a stated risk and tell the user. The single-agent default applies when the user has not chosen.
+- A coordinator layer between the root and its workers needs one sentence in the orchestrator that names why the root cannot hold that work; without it, workers report to the root. The two-level cap in 2-2 stays.
+- Write the answers and the outcome in the orchestrator under `## Delegation gate` (Step 5).
+
+(adapted from references/meta_harness/.agents/skills/harness/references/agent-design-patterns.md:221 (Apache-2.0); adapted from references/meta_harness/.agents/skills/harness/SKILL.md:166 (Apache-2.0))
+
 #### 2-1. Execution mode (Claude Code)
 
 | Mode | Primitives | Fits |
@@ -114,6 +127,7 @@ Every orchestrator contains:
 - **Connector preflight** (only when an agent has `## Required connectors`): Step 0 ends with the preflight item from Template A Step 0 in `references/orchestrator-template.md`, holding one agent → connector row per declared line. On Claude Code a missing connector stops the run before any spawn; on chat and Cowork the orchestrator warns and asks instead, because connector listings there are deferred and an absent name is not proof (`references/surfaces.md` §4).
 - **Data hand-off**: structured return (`schema`) in A; return message in C; `SendMessage` and shared tasks in B; files for anything large or auditable, as `_workspace/{phase}_{agent}_{artifact}.{ext}`. Freeze artefacts at phase boundaries in B (template B Step 4).
 - **Delegation contract** (only when the orchestrator spawns or messages a worker, so never in a single-context fallback): paste the Delegation block from `references/orchestrator-template.md` at the step that launches workers and fill one five-line brief per worker role. The block fixes what a brief must contain, the STATUS / EVIDENCE / BLOCKER report a worker ends with, and the check the orchestrator runs before it uses a report (re-ask once, then mark the result unverified). It is prompt quality plus a check, not a guarantee.
+- **Delegation gate** (every orchestrator): a `## Delegation gate` section with the six answers and the outcome from Step 2-0, written before anything is spawned; a single-agent outcome spawns nothing. Template C in `references/orchestrator-template.md` carries the block and an optional notes block for workers; an A or B orchestrator copies the same block.
 - **Error policy**: one retry then proceed and record the gap; never retry quota, auth or permission failures — open the partial artefacts, record what is missing, report; the orchestrator fills a gap only with facts it verified itself, never with a guessed judgement; in Mode A, `.filter(Boolean)` after every `parallel()`/`pipeline()` and `log()` the dropped count.
 - **Scale**: 2-3 persistent agents for small jobs, 3-5 for medium, supervisor + 3-5 for large; Workflow calls from a handful to hundreds, capped by `budget.remaining()` when a budget is set.
 - **Quality gates** when the harness builds software or produces audited decisions — outputs a third party will rely on (a lender, a client, a regulator, an auditor): credit or compliance assessments, client-facing advice, legal or financial figures. A gap email that only lists missing documents is not one; a servicing verdict is. Then: Authority List → fresh-context judge (max 3 rounds, then escalate with both positions) → build one slice → boundary QA with `RESULT: PASS|FAIL` first line, the repo's real gates re-run, mutation spot-checks on a scratch copy, one builder retry → final report whose first line is Done / partly done / blocked (`references/quality-gates.md`).
