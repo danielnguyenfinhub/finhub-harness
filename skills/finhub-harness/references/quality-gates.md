@@ -190,15 +190,63 @@ Also record what is skipped. The slice 8 record names the one skip that belongs 
 
 ### 3-4. Mutation spot-checks on a scratch copy
 
-A green gate only proves the tests pass. It does not prove the tests can fail. For every safety-critical behaviour, QA deliberately breaks the code and confirms a test notices.
+A green gate only proves the tests pass. It does not prove the tests can fail. For every safety-critical behaviour, QA deliberately breaks the code and confirms that the test written for that behaviour fails, at the assertion written for it. A run that fails for any other reason proves nothing about the test. (adapted from references/openrig/packages/test-system/ci/result.mjs:33-34 (Apache-2.0))
 
 Procedure:
 
-1. Copy the package into a scratch directory. Never edit the repo under review, and never delete anything there.
-2. Confirm the import path actually loads the copy. In the slice 9 record, a first attempt hit a comment line and was a silent no-op (`22 passed`); only redoing it against the real call produced a kill. Run the unmutated baseline in the copy first, and confirm each mutation changes behaviour before trusting a "killed" result.
-3. Apply one mutation at a time (drop a check, invert a condition, remove a cleanup) and run the relevant tests.
-4. A mutant is KILLED if a named test fails. It SURVIVED if the suite stays green.
-5. Compare the repo file to the original afterwards (`cmp`) to prove the repo was untouched.
+1. Copy the tree into a scratch directory outside it with `tar`, so `.gitignore`, `skills/` and `.claude/` come along (tests read them, and a copy without them fails for the wrong reason). Leave `.venv`, `.git`, `dist` and `__pycache__` out of the copy (a copy that includes a virtual environment can fill the disk), and give the copy a read-only link to the pinned `references/` instead of a second copy; a mutant never targets `references/`. Take the copy from the tree whose `candidate_id.py id` equals the `Candidate:` line of your brief, make a new copy for each mutant and delete it after the row is written. Everything you write (`spec.json`, the three reports) goes into a work directory outside the tree too: a stray file inside the tree under review moves its candidate id. Never edit or delete anything in the repo under review.
+2. Confirm the import path actually loads the copy. In the slice 9 record, a first attempt hit a comment line and was a silent no-op (`22 passed`); only redoing it against the real call produced a kill. Show that the diff between the copy and the original is non-empty and is the change the spec states.
+3. Before the first run of a mutant, write its spec and save it: `id`, `file` (the code under test: never the module named in `test`, and never `conftest.py`, because the mutation goes into the code under test and never into the test that is meant to catch it; `classify` exits 2 for such a spec), `old`, `new`, `test` (the one test id the change is meant to break) and `sig` (the distinctive text of the assertion that should trip, such as an expected value; at least 6 characters, and not the bare word `assert` or `AssertionError`). Record `sha256sum` of the spec file in the report. Choosing the mutant after seeing which test fails is not a mutation check. For a mutant that the design's Test plan lists, copy `test` and `sig` from the design's row byte for byte, record the spec's sha256 next to that row, and show that every field equals the design's row. A mutant you add yourself is labelled "not pre-registered" in the report and never replaces a design row.
+4. Apply one mutation at a time (drop a check, invert a condition, remove a cleanup).
+5. Run three legs, in this order, each in a new process with the same command and the same test files (no `-x`: a stopped run reports fewer tests and is void), each writing its own report and starting from no report file: the untouched copy (`before`), the copy with the change (`mutant`), the copy after the file is put back and `cmp` against the original is empty (`after`). Then run `classify` and paste its whole output as the mutant's row.
+
+```bash
+REPO=/path/to/the/tree/named/on/your/Candidate/line     # the tree under review; nothing is written into it
+W=$(mktemp -d)                                           # outside "$REPO": spec.json and the three reports
+COPY=$(mktemp -d)                                        # outside "$REPO": a new one for each mutant
+tar -C "$REPO" --exclude=./.venv --exclude=./.git --exclude=./dist --exclude=./references \
+    --exclude=__pycache__ -cf - . | tar -C "$COPY" -xf -
+ln -s "$REPO/references" "$COPY/references"              # read-only use; no mutant targets it
+# write "$W/spec.json" now, then:
+rm -f "$W"/before.xml "$W"/mutant.xml "$W"/after.xml; sha256sum "$W/spec.json"
+(cd "$COPY" && python -B -m pytest -p no:cacheprovider --junitxml="$W/before.xml" tests/test_guard.py)
+# apply the change in "$COPY"; show the diff against "$REPO"
+(cd "$COPY" && timeout 300 python -B -m pytest -p no:cacheprovider --junitxml="$W/mutant.xml" tests/test_guard.py)
+# put the file back; cmp it against "$REPO"
+(cd "$COPY" && python -B -m pytest -p no:cacheprovider --junitxml="$W/after.xml" tests/test_guard.py)
+python3 "$REPO/skills/finhub-harness/scripts/mutant_gate.py" classify "$W/spec.json" \
+    --before "$W/before.xml" --mutant "$W/mutant.xml" --after "$W/after.xml"
+rm -rf "$COPY"                                           # after the row is written
+```
+
+Run `classify` from the unmutated script in `$REPO`, never from the copy. Use the same Python that runs the repo's own gates (the virtual environment is not copied).
+
+6. Compare the repo file to the original afterwards (`cmp`) to prove the repo was untouched.
+
+The script prints one `STATE:` per mutant and exits 0 only for CAUGHT. The rules, with the state each one produces (the healthy-faulted-healthy sandwich and its refusal of a startup error, timeout or unrelated failure are adapted from references/openrig/docs/as-built/test-layers.md:214-226 and :324-326 (Apache-2.0)):
+
+| Id | Rule |
+|----|------|
+| M1 | The spec is written and hashed before the first leg. `classify` prints the spec's sha256 and returns `ORDER` when the spec file is newer than the `before` run. It exits 2 for a spec whose `file` is the module named in `test` or is `conftest.py`: the mutation goes into the code under test, never into the test that is meant to catch it. |
+| M2 | One mutant is three legs: before, mutant, after. A leg whose report is missing or unreadable (a timeout, a kill, a crash) is not a result: a missing `mutant` report is `INVALID`, a missing baseline report is `BASELINE-RED`. All three legs must run exactly the tests of the `before` leg: the same set of test ids, not only the same number (a different selection of equal size is `INVALID` for the `mutant` leg and `BASELINE-RED` for the `after` leg). |
+| M3 | CAUGHT needs all of: the `test` of the spec ran and failed in the `mutant` leg; its first error line is an assertion (`assert ...`, `AssertionError` or `Failed: DID NOT RAISE`) and the error lines contain `sig`; the report holds no error element. Other tests may fail as well. Anything else is `INVALID`: a collection, import or syntax error, a crash or a timeout, the intended test passing while another fails, a different exception in the intended test, a missing signature. (adapted from references/openrig/packages/test-system/ci/result.mjs:50-65 (Apache-2.0)) |
+| M4 | `before` and `after` must each show the intended test passing with no failure and no error, or the state is `BASELINE-RED`. A red `before` voids the mutant run; a red `after` means the file was not put back or a test depends on run order. |
+| M5 | The reports must be in time order: spec file, `before`, `mutant`, `after`, and a leg must end (its start plus the suite time pytest wrote) no later than the next leg starts. Otherwise `ORDER`. For a mutant the design's Test plan lists, the file time is the only mechanical guard on your own `sig`; the design's row is the other (step 3). |
+| M6 | `SURVIVED` (every test passed with the change in place, and the sandwich holds) is a FAIL when the mutant is not equivalent, as before; the equivalence argument stays in the report. |
+| M7 | `INVALID`, `BASELINE-RED` and `ORDER` are void: neither a kill nor a survivor. Keep the row and its output, fix the mutant or the environment, write a new spec and run again. A behaviour whose mutants are all void is unproven, and the report is FAIL. Only a `mutant:` row that ends in `CAUGHT` or `SURVIVED` counts as the adversarial probe of section 3-1. |
+| M8 | A mutant result belongs to the candidate it ran on (rule C4). After a builder fix, run every mutant again on the new candidate; a state taken from an earlier candidate goes on the `CARRIED:` line and never licenses a PASS. |
+
+Does not cover:
+
+- Anything that is not pytest. `classify` reads pytest JUnit files. Supported: pytest 6.2.5 to 9.1.1 on Python 3.11 (measured); nothing is claimed below pytest 6.2 (5.4.3 gave error elements in the baseline). The script itself needs Python 3.9 or later. For a shell script, a grep gate or another runner, the same sandwich is done by hand, and the failing run must show the pinned text of the check it was written to break; a startup error or timeout is still not a catch.
+- Prose mutants without a pin. Where a test pins a sentence (a test that asserts the sentence is in the file), the pin test is the intended assertion: its id is `test` and the pinned phrase is in `sig`. Prose that no test pins has no assertion to catch the change, so its proof is the design's greps, not this rule.
+- Equivalent mutants. They still need a written argument (rule M6); `classify` reports them as `SURVIVED`.
+- Flaky tests. A flaky test can turn a leg red or make a catch intermittent. M4 catches some of it. Section 3-5 still applies.
+- A test that asserts the wrong thing. `CAUGHT` shows that the test noticed this change at a place the QA agent named; it does not show that the assertion is a good one, or that `sig` was well chosen.
+- A QA agent that picks `sig` after reading the failure. For a mutant that the design pre-registered, copying `test` and `sig` from the design's row (step 3) is the answer; for a mutant the QA agent adds, only the spec file's time guards against it (rule M1), and a file time can be set by hand. The script is there to catch accidents, not to detect fraud.
+- Failure shapes that are never a catch: `--tb=native` (the failure text has no `E` lines, so the run is `INVALID`), a failing `pytest.warns` (`Failed: DID NOT WARN` is not in the allow-list, so `INVALID`), and `pytest.fail`. A test id whose parameter ids contain `::` cannot be matched to the report (the run ends `BASELINE-RED`, which fails closed). A `\` in the `test` path is read as `/`; other Windows path forms are not normalised.
+- Naive timestamps. pytest 6 and 7 write the suite start without a time zone; `classify` reads it in its own time zone, so a different `TZ` between the runs and `classify` can give `ORDER` or let the file-time check pass wrongly. Run the legs and `classify` in one environment.
+- The mutation tables that builders keep inside their own tests (for example `tests/test_candidate_id.py`) judge a kill by a named check failing; this rule does not change them.
 
 Real mutants that survived on the first pass of this build. Each was a green gate with a weak test; the builder fixed the tests and QA re-ran the mutants until all were killed (source: first-pass defects as restated in `_workspace/03_boundary-qa_slice8.md`, `..._slice9.md`, `..._slice11.md` and `_workspace/04_boundary-qa_report.md`):
 
@@ -207,6 +255,8 @@ Real mutants that survived on the first pass of this build. Each was a green gat
 | 8 | M2: drop `stop.set()` in `finally`. M3: drop the reader join loop. M4: close both pipes before join. | Test strength: nothing proved an abandoned stream releases its reader threads or pipes, or that teardown cannot hang. Killed afterwards by `test_abandoned_stream_releases_readers` and `test_abandoned_stream_with_escaped_child_does_not_hang`. |
 | 9 | M7a: replace every `terminate()`/`kill()` in `close()` with `pass`. M7b: drop the `finally` kill. | The kill path was never reached: the stub server exited on stdin EOF, so no test forced `close()` past EOF. Fixed by adding `--ignore-eof` and `--ignore-term` stub modes, so the terminate and kill branches are provably reached. The same pass found environment scrubbing unasserted (M9 killed afterwards). |
 | 11 | D1: empty phrase accepted. D2: non-string `eval.type` crashed with `TypeError`. S1: empty ground could pass. S2: workspace cleanup only on success. | D1 and D2 were loader defects, and S1 and S2 were test gaps. After the retry all four were killed by `test_empty_phrase_rejected`, `test_non_string_eval_type_is_valueerror`, `test_empty_ground_cannot_pass` and `test_workspace_cleaned_after_crash`. |
+
+The kills in this table were recorded under the earlier wording (a named test fails) and were not re-run under rule M3.
 
 **The rule: a surviving mutant is a FAIL even when the gate is green.** A green gate with a survivor means the test suite cannot detect that class of defect. The builder gets the mutant list as its defect list, and QA re-runs the same mutants after the fix.
 
@@ -336,7 +386,10 @@ The Writers bullet is adapted from references/meta_harness/.agents/skills/harnes
       gets imported, run an unmutated baseline first, and prove the repo is unchanged afterwards.
 - [ ] A surviving non-equivalent mutant is a FAIL even when every gate is green. An equivalent
       mutant needs a written argument.
-- [ ] Before PASS, record at least one adversarial probe (`probe:` or `mutant:` row) with its output.
+- [ ] A mutant is killed only when `mutant_gate.py classify` prints `STATE: CAUGHT` for it (rules M1-M8,
+      section 3-4). A mutant that broke the import, timed out or failed in another test is void: redo it.
+- [ ] Before PASS, record at least one adversarial probe (`probe:` or `mutant:` row, the latter only with a
+      `STATE:` of CAUGHT or SURVIVED) with its output.
       Every gate row carries its observed output, the summary line on success included.
 - [ ] Re-run timing and concurrency tests 10 times. Check for stray processes and scratch files.
 - [ ] Sweep touched files for real client data, secrets and personal identifiers.
@@ -356,4 +409,5 @@ The Writers bullet is adapted from references/meta_harness/.agents/skills/harnes
 - Slice 10's first-pass result is recorded as PASS in the final report. Its slice report was not used for the mutant list.
 - The 25 NET-NEW count and the "named test exists for every NET-NEW row" claim are taken from the final report and the judge's verdict. They were not re-counted here.
 - The licence tier names "copy / pattern-only / never" are a simplification. The build's own labels are `adapt`, `pattern`, `reference` and "do not port".
+- Rules M1-M8 have been run against a seeded set of broken mutants (`tests/test_mutant_gate.py`), not yet by a QA agent on a real slice.
 - Whether the mutation, flakiness and escalation procedures have been exercised end to end by a harness other than Master FinHub is not known. No round of the build reached escalation (round 3).
