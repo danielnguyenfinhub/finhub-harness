@@ -239,7 +239,7 @@ FinHub differences from the source, kept on purpose: the verdict is the **first*
 
 ### 7-3. Before PASS
 
-Record at least one adversarial probe and its outcome, even if the code handled it: a boundary value, an unknown id, the same mutating call twice, two concurrent calls, or a mutation spot-check on a scratch copy (`quality-gates.md` §3-4). If every row says "exit 0" or "suite passes", only the happy path has been seen. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:312 (MIT))
+Record at least one adversarial probe and its outcome, even if the code handled it: a boundary value, an unknown id, the same mutating call twice, two concurrent calls, or a mutation spot-check on a scratch copy (`quality-gates.md` §3-4). If every row says "exit 0" or "suite passes", only the happy path has been seen. A mutation spot-check counts only as a `mutant:` row that ends in `STATE: CAUGHT` or `STATE: SURVIVED` from `mutant_gate.py classify` (section 7-9). (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:312 (MIT))
 
 ### 7-4. Excuses to catch yourself making
 
@@ -250,6 +250,7 @@ Record at least one adversarial probe and its outcome, even if the code handled 
 | "Probably fine" | A `probe:` row aimed at the case you were unsure about. |
 | "No browser / no server available" | A row showing how you looked (`which <tool>`, the session's tool list). If it is truly absent: FAIL, naming it. |
 | "Too slow to check" | Start it with a time limit; if it does not finish, FAIL with the limit and the command named. |
+| "The mutant made the tests fail, so it is killed" | The `classify` output with `STATE: CAUGHT`. A failure that came from an import error, a timeout or another test is `INVALID`; redo the mutant. |
 
 (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:294 (MIT))
 
@@ -292,3 +293,13 @@ Mobile rows from the source are not carried; no FinHub harness ships a mobile ap
 ### 7-8. Name the candidate
 
 The line under the verdict is `CANDIDATE:`, copied from `python3 <skill dir>/scripts/candidate_id.py id` (`quality-gates.md` section 3-7). Run it when you start and compare it with the line in your brief. If they differ, write `RESULT: FAIL — candidate differs from the brief` and stop. Run it again just before you write the report. QA is read-only, so an id that moved means somebody else wrote to the tree; write `RESULT: FAIL — candidate moved during QA`. Mutation copies belong outside the tree. A cache folder that your own gate commands create inside it moves the id unless `.gitignore` hides it, so hide it there or pass `--exclude` to `id`. The `CARRIED:` line says `-` when every check in the report ran on this candidate; a check taken from an earlier report is named there with the candidate it ran on, and such a report is not a ship verdict. Where no shell runs, write `CANDIDATE: unverified (no shell)` and name the files you read. (adapted from references/openrig/scripts/gate-lane.mjs:151-154 (Apache-2.0); a report that says which evidence is carried forward, adapted from references/openrig/CHANGELOG.md:591 (Apache-2.0))
+
+### 7-9. Mutant rows
+
+A `mutant:` row in `## Gate` carries the whole output of `mutant_gate.py classify` (`quality-gates.md` section 3-4, rules M1-M8), one row per mutant and per attempt:
+
+| check | command | exit | output observed |
+|---|---|---|---|
+| mutant: M2 `depth > MAX` to `depth > MAX + 1` | `python3 "$REPO/skills/finhub-harness/scripts/mutant_gate.py" classify "$W/spec_m2.json" --before "$W/before.xml" --mutant "$W/mutant.xml" --after "$W/after.xml"` | 0 | `SPEC-SHA256: 9f2c...`, `STATE: CAUGHT`, `REASON: intended test failed at: assert 6 == 5` |
+
+Give the diff row and the three pytest rows (exit code and summary line each) next to it. For a mutant the design lists in its Test plan, copy `test` and `sig` from the design's row byte for byte, put the spec's sha256 next to that design row, and show that every field of your spec equals it; a mutant you add yourself is labelled "not pre-registered" in the row and never replaces a design row. The file time of the spec is the only mechanical guard on a `sig` you chose yourself. Exit 0 is the only kill. Exit 3 prints `SURVIVED` (a FAIL unless argued equivalent) or one of `INVALID`, `BASELINE-RED`, `ORDER`, which are void: keep the row, say what you changed, and run the mutant again under a new id (`M2b`) with a new spec. Never edit a report to turn a void row into a kill. Take the copy from the tree named on your `CANDIDATE:` line; when the tree changes, every earlier mutant row is carried and the mutants are run again. (adapted from references/openrig/packages/test-system/ci/result.mjs:33-34 and :50-65 (Apache-2.0))

@@ -103,7 +103,7 @@ Reusable experts are custom types in `project/.claude/agents/{name}.md`, invoked
 - Frontmatter: `name` and `description` required; `tools` to restrict (drop Edit and Write for read-only reviewers; give Edit *and* Write to anything that fixes artefacts); `model` with the reason as a comment.
 - Body: role, working principles with their reasons, input/output rules, error handling, collaboration. Persistent agents (Mode B) add `## Communication rules`; Workflow-only agents (Mode A) add `## Structured output`; one-shot agents (Mode C) need neither — their `## Input and output rules` name the artefact paths they read and write. Skills are wired in the body ("call `/skill-name` with the Skill tool"); there is no `skills:` frontmatter field.
 - Connectors: an agent that cannot do its job without an MCP server or connector gets a `## Required connectors` section in its body, one server per line, written as the segment between `mcp__` and the next `__` in its tool names (`mcp__crm__search` → `crm`). Leave the section out when the agent needs none. Step 5 copies these lines into the orchestrator's preflight table, so a missing connector stops the run before anyone is spawned instead of failing on the agent's first call. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:956 (MIT))
-- QA agents get a type with all tools (`Explore` cannot run scripts), compare shapes across boundaries rather than check existence, and run after every module, not once at the end (`references/qa-agent-guide.md`). Add the mutation spot-check from `references/quality-gates.md` §3 whenever the QA agent judges tests, and have it write a `CANDIDATE:` line under `RESULT:` so the verdict names the tree it judged (§3-7).
+- QA agents get a type with all tools (`Explore` cannot run scripts), compare shapes across boundaries rather than check existence, and run after every module, not once at the end (`references/qa-agent-guide.md`). Add the mutation spot-check from `references/quality-gates.md` §3 whenever the QA agent judges tests, count a mutant as killed only when `scripts/mutant_gate.py` prints `STATE: CAUGHT` for it (§3-4), and have it write a `CANDIDATE:` line under `RESULT:` so the verdict names the tree it judged (§3-7).
 - Model per agent from `references/model-selection-guide.md`: fable only for the layer that plans and runs long; opus for design, generation, judging; sonnet by default.
 
 ### Step 4: Write the skills
@@ -197,7 +197,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - [ ] Every worker brief has Goal, Inputs, Scope, Expected output and Report; every worker report ends in STATUS / EVIDENCE / BLOCKER form; the orchestrator re-asks once and then marks the result unverified (a `once` phase is never re-asked).
 - [ ] Every section that launches writers in parallel has a `## Writers` table with one ownership label per writer (`references/write-safety.md`); `python3 scripts/check_writers.py --require` on that orchestrator exits 0 (path relative to this skill's directory); a harness with one writer needs no table and is not run with `--require`.
 - [ ] Borrowed patterns cited in an Authority List with licence tier; net-new decisions labelled with reason and test.
-- [ ] If the harness builds software: QA runs the repo's real gates after every slice and reports `RESULT:` first, then `CANDIDATE:`; the orchestrator runs `candidate_id.py check` on that report before it commits.
+- [ ] If the harness builds software: QA runs the repo's real gates after every slice and reports `RESULT:` first, then `CANDIDATE:`; the orchestrator runs `candidate_id.py check` on that report before it commits. Each mutant it ran ends in `STATE: CAUGHT` or is redone.
 
 ## References
 
@@ -214,6 +214,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - Skill testing: `references/skill-testing-guide.md`
 - QA agents: `references/qa-agent-guide.md`
 - Authority List, adversarial audit, mutation-tested QA, honest reporting: `references/quality-gates.md`
+- A mutant counts as caught only when the test written for it fails at the assertion written for it, between a passing run before and a passing run after: `references/quality-gates.md` §3-4 (rules M1-M8) and `scripts/mutant_gate.py` (adapted from references/openrig/packages/test-system/ci/result.mjs:33-34 (Apache-2.0))
 - Naming the tree a verdict judged, and refusing a stale verdict: `references/quality-gates.md` §3-7 and `scripts/candidate_id.py` (adapted from references/openrig/scripts/gate-lane-consume.mjs:23-25 (Apache-2.0))
 - Parallel writers, the ownership ladder and honest labels: `references/write-safety.md` (adapted from references/meta_harness/.agents/skills/harness/SKILL.md:133 (Apache-2.0))
 - Borrowing from other harness repos under licence rules: `references/source-enrichment.md`

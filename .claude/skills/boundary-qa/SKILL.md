@@ -20,7 +20,7 @@ Most integration bugs live between two files that each look correct alone: the t
    ```
    Then run the slice's proof command if it has one (e.g. `python -m master_finhub.cli "echo hi"`).
 4. **Compliance sweep** of files touched: no real names, emails, phone numbers, account numbers, Mercury ids, API keys or tokens in `src/` or `tests/`.
-5. **Write** `_workspace/03_boundary-qa_slice{N}.md`. First line `RESULT: PASS` only if every boundary matches, all four commands exit 0, the proof command produces the expected output, at least one adversarial probe is recorded as a `probe:` or `mutant:` row with its output, and the sweep is clean. Otherwise `RESULT: FAIL`.
+5. **Write** `_workspace/03_boundary-qa_slice{N}.md`. First line `RESULT: PASS` only if every boundary matches, all four commands exit 0, the proof command produces the expected output, at least one adversarial probe is recorded as a `probe:` or `mutant:` row with its output (a `mutant:` row ends in `STATE: CAUGHT` or `STATE: SURVIVED` from `mutant_gate.py classify`; adapted from references/openrig/packages/test-system/ci/result.mjs:33-34 (Apache-2.0)), and the sweep is clean. Otherwise `RESULT: FAIL`.
 
 ## Report format (slice)
 
