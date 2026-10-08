@@ -83,7 +83,7 @@ The judge is a separate agent that shares nothing with the architect except the 
 
 ### 2-2. Verdict schema
 
-The verdict file starts with a totals line so the orchestrator can gate on it without parsing tables. Format from `.claude/skills/adversarial-audit/references/verdict-schema.md`:
+The verdict file starts with a totals line so the orchestrator can gate on it without parsing tables. The second line is `CANDIDATE:`, the id of the design file the judge read (section 3-7), and the third is `CARRIED:`. Format from `.claude/skills/adversarial-audit/references/verdict-schema.md`:
 
 ```markdown
 TOTALS: UPHELD 9 / REJECTED 1 / UNVERIFIED 1 — round 2/3
@@ -162,7 +162,7 @@ Run QA after each slice, not once at the end. Defects found late are expensive a
 
 ### 3-1. The verdict line
 
-The first line of every slice QA report starts with `RESULT: PASS` or `RESULT: FAIL`, so the orchestrator reads it without parsing. PASS requires all of: every boundary matches, all gate commands exit 0, the proof command produces the expected output, and the compliance sweep is clean. A command that cannot run is a FAIL with the missing tool named; QA never marks PASS by skipping. Every check behind that line is a command with its observed output, and PASS also needs at least one recorded adversarial probe (`qa-agent-guide.md` section 7).
+The first line of every slice QA report starts with `RESULT: PASS` or `RESULT: FAIL`, so the orchestrator reads it without parsing. PASS requires all of: every boundary matches, all gate commands exit 0, the proof command produces the expected output, and the compliance sweep is clean. A command that cannot run is a FAIL with the missing tool named; QA never marks PASS by skipping. The next two lines are `CANDIDATE:` and `CARRIED:` (section 3-7): the PASS belongs to the tree named there and to no other. Every check behind that line is a command with its observed output, and PASS also needs at least one recorded adversarial probe (`qa-agent-guide.md` section 7).
 
 ### 3-2. Shape comparison across boundaries
 
@@ -230,6 +230,48 @@ When QA returns FAIL:
 
 In this build slices 8, 9 and 11 failed once on test strength or loader defects and passed after the single retry; slice 10 passed first time. The first-pass FAIL reports were overwritten by the retry reports, so the first-pass detail above comes from the retry reports' notes.
 
+### 3-7. The verdict names the candidate it judged
+
+A PASS is a statement about one tree. If the tree is not named, an edit made after the verdict leaves the PASS standing over files nobody checked, and the commit that follows rests on it. A QA report and a judge verdict therefore carry a `CANDIDATE:` line directly under their first line (`RESULT:` for QA, `TOTALS:` for the judge), then a `CARRIED:` line, and whoever is about to act on the verdict compares that line with the tree in front of them first.
+
+```text
+RESULT: PASS
+CANDIDATE: git:1a2b3c4d5e6f+0f1e2d3c4b5a6978 n=214 excludes=_workspace/
+CARRIED: -
+```
+
+`scripts/candidate_id.py` computes the id and makes the comparison (standard library only, no network, exit 0 / 2 / 3 with the meaning they have in `state_ledger.py`). Its `id` command prints the line to paste, and its `check` command takes a verdict file and prints `STATE: current` or `STATE: STALE` with the reason. If the session that runs the harness does not have the plugin, copy the script into the harness the way `state-ledger.md` section 4 copies `state_ledger.py`.
+
+| Id | Rule |
+|----|------|
+| C1 | The line comes from `candidate_id.py id`, never from memory or by hand. `git:<head12>+<tree16>` names a git worktree: the commit, plus the content of every tracked file and of every untracked file that `.gitignore` does not hide. `files:<tree16>` with a `paths=` field names the listed files or directories (a patch file, a design document) and is the kind to use outside git. `unverified (<reason>)` is written where no shell runs or `id` exits 3. |
+| C2 | `excludes=` lists what the id leaves out. The default is `_workspace/`, so the reports and verdicts a team writes there do not change the id they carry. Add an exclude only for output that the reviewed work itself produces. `check` takes the list from the record and prints it as its `EXCLUDES:` line; the orchestrator compares that line with `_workspace/` (or the list the harness declares) and refuses a verdict whose list differs, because a wider list hides files from the id. Compare entry by entry and ignore a trailing slash: the script prints the default as `_workspace/` and every entry you add without one (`--exclude .claude-flow/` is printed `.claude-flow`). The default belongs to the `git:` kind only; a `files:` id lists exactly the paths it is given, so a design file under `_workspace/` is covered. |
+| C3 | The reviewer computes the id when it starts and again just before it writes. A start id that differs from the one in its brief makes the first line `RESULT: FAIL — candidate differs from the brief`; an id that moved during the run makes it `RESULT: FAIL — candidate moved during QA`. A judge does the same with `TOTALS:` and the design file. |
+| C4 | One verdict covers one candidate. A check that was not run on this candidate is named on `CARRIED:` with the candidate it was run on, and the line reads `-` when there is none. A QA verdict with anything but `-` there never licenses a commit. A judge verdict may carry Authority List rows whose text is unchanged from the earlier round, and says which. |
+| C5 | Before anyone acts on a verdict (commits, pushes, opens a pull request, ships, starts the phase that consumes it, resumes a run), run `check` on the verdict file. Exit 0: go on. Exit 3: the verdict is stale, unbound or unverified, and its first line is void for this tree. Exit 2: the call was wrong; fix the call. A generated orchestrator with an error table gives the exit 3 its own row (a verdict whose `check` exits 3 is treated as not given), besides the step that checks reports. |
+| C6 | A stale verdict is replaced by a new verdict on the new candidate, not argued away. A narrower check made after a small change is a new report with its own `CANDIDATE:` and a `CARRIED:` naming what it did not run; it may guide the builder, and under C4 it does not license a commit. |
+| C7 | The commit that holds the judged tree changes the commit part of the id. `check --tree-only` ignores that part and passes while the files are unchanged; with an empty `git status --short` after the commit, a push or a pull request can show which verdict it rests on. The plain `check` fails after the commit, so one verdict licenses one commit. |
+| C8 | A run that only shows the gate commands start (a smoke or dry run) is a FAIL under 3-1 whatever id it carries, never a PASS. |
+
+In a harness with a state ledger (`state-ledger.md`), a verdict file is one handoff row, and `complete` there means its headings exist, not that it is current. The orchestrator runs `check` on the file before it starts the phase that consumes it. Exit 3 means that verdict phase has to be earned on the current tree; rule R7 of the ledger still applies, so the orchestrator tells the user the verdict is stale and runs the phase when they agree.
+
+Does not cover:
+
+- The id shows what was on disk when the line was computed. It does not show that the reviewer opened every file in it: a verdict over 214 files may rest on ten.
+- The tree can change between the check and the action that follows it. The check shortens that gap and does not close it.
+- Ignored files, the contents of a submodule (only its pinned commit), what a symlink points at, file times and the git configuration in force are outside the id. A tracked file replaced by a directory, an unreadable file, an untracked directory the user cannot read, a file over the size limit or a symlinked directory on a path makes the id partial, and `id` and `check` then exit 3 instead of guessing.
+- The id is byte exact. A change of line endings or a byte order mark changes it, and the same commit checked out under a different `core.autocrlf` setting gives a different id.
+- Sixteen hex digits notice an accidental change. A verdict file is plain text that anyone can edit, so the line is not tamper evidence.
+- A gate can refuse a dirty tree outright. This id accepts one and binds the verdict to its content, because the team reviews work before it is committed: untracked files count, ignored ones do not, and `--tree-only` passing proves nothing about a file the commit left out unless `git status --short` is also empty.
+- Chat and Cowork have no git and no shell. `unverified` cannot be compared, so the consumer treats any edit made after the verdict as voiding it and says so to the user.
+- `check` reads the `CANDIDATE:` line and nothing else in the file: a stale FAIL is as void as a stale PASS, and a downstream phase that already read a stale file is not marked out of date.
+- A `CANDIDATE:` line copied from the brief without running `id` matches like a computed one, so `check` shows that the tree is unchanged since the brief, not that the reviewer looked at it; a `RESULT: FAIL` report checks `current` too.
+- Of a submodule only the staged pin is read, not the commit checked out inside it: a different checked-out commit under the same pin does not move the id.
+- A file hidden by an untracked `.gitignore`, including one that hides itself, is invisible to the id, although a test or lint run still reads it.
+- `_workspace/` is outside the default id, so the design file QA judged against and the report itself can change without moving a git id.
+
+(Binding a verdict to the exact commit and refusing a mismatch, adapted from references/openrig/scripts/gate-lane-consume.mjs:23-25 (Apache-2.0). A run that fails when the commit moves under it, adapted from references/openrig/scripts/gate-lane.mjs:151-154 (Apache-2.0). An id that states what it covers, adapted from references/openrig/docs/reference/sdlc-conventions.md:157-173 (Apache-2.0). A verdict that is used once, adapted from references/openrig/scripts/gate-lane-consume.mjs:29-31 (Apache-2.0). Evidence taken from an earlier candidate says so, adapted from references/openrig/CHANGELOG.md:591 (Apache-2.0).)
+
 ---
 
 ## 4. Honest reporting
@@ -283,6 +325,7 @@ The Writers bullet is adapted from references/meta_harness/.agents/skills/harnes
 
 - [ ] Open the design's declared interfaces first. Judge the code against them, not against itself.
 - [ ] Write `RESULT: PASS` or `RESULT: FAIL` as the first line of the report.
+- [ ] Second line `CANDIDATE:` from `candidate_id.py id`, computed when you start and again just before you write (a start id unlike the brief's, or one that moved, is a FAIL); third line `CARRIED:`, `-` when every check ran on this candidate (section 3-7).
 - [ ] For each boundary the slice touches, open side A and side B together and record both shapes
       (tool schema, call site, test fixture and assertion, CLI invocation and output, error shape).
 - [ ] Re-run every gate command yourself, separately, from the repo root. Record exit code and

@@ -92,6 +92,7 @@ After calling it, wait for the completion notification. Do not presume the resul
 | Failures that retrying will not fix (usage limit exhausted, expired authentication, permission denied) | Do not retry or resume until the cause is cleared, because doing so only burns the remaining limit. Open the `journal` and the partial artifacts directly to confirm how far the run actually got, record the missing content as a file in `_workspace/`, and report to the user. For a usage limit, also tell the user when it resets. Once the cause is cleared, you can continue with `resumeFromRunId`, except a stage marked `once`: run `resume` and follow rule O6 of `state-ledger.md` section 3a. The main agent reflects only facts it confirmed directly, and does not guess at agents' judgments (for example, which material was excluded and why). |
 | The result is empty | Do not mistake it for success. Check each agent's actual return value in the `journal`. |
 | Conflicting data | Do not delete it; record it together with its sources. |
+| A verdict whose `check` exits 3 (only where a worker judges a candidate) | The verdict belongs to another tree: treat it as not given, commit and start nothing from it, tell the user, and run the judging phase on the current tree when they agree. |
 
 ## Test scenarios
 
@@ -201,6 +202,7 @@ If the collaboration has several stages, follow the same procedure at each stage
 | The time limit was exceeded | Proceed with the results received so far, and state in the report the areas that were not finished. |
 | The data conflicts | Do not delete it; write it side by side with its sources. |
 | Task status was reflected late | Check with TaskList, then update it directly with TaskUpdate. |
+| A verdict whose `check` exits 3 (only where a worker judges a candidate) | The verdict belongs to another tree: treat it as not given, commit and start nothing from it, tell the user, and run the judging phase on the current tree when they agree. |
 
 ## Test scenarios
 
@@ -279,6 +281,8 @@ Leave `_workspace/` and summarize the results for the user.
 - If more than half of the agents fail, tell the user and confirm whether to continue.
 - A worker whose valid report is `partial` or `blocked`: keep what it returned, name the missing part in the final artifact and mark the result incomplete. Do not cover the missing part with a guess.
 - A synthesis input that never arrives (a worker failed twice, or a branch has no report): mark each missing branch as missing in the final artifact and in the report. Do not write text that implies coverage the run lacks.
+
+A verdict whose `check` exits 3 (only where a worker judges a candidate) is one more error-handling row of its own: treat it as not given, commit and start nothing from it, tell the user, and run the judging phase on the current tree when they agree.
 ```
 
 Sources for the gate block, the notes block and the two error rows above: (adapted from references/meta_harness/.agents/skills/harness/references/orchestrator-template.md:78 (Apache-2.0); adapted from references/meta_harness/docs/architecture/handoffs.md:34 (Apache-2.0)).
@@ -329,6 +333,8 @@ Three phrases mark a brief that delegates understanding instead of stating it: "
 The Scope line points a worker that writes to its row in the `## Writers` table, which holds its ownership label. Fill that table and choose the labels with `write-safety.md` before you paste the block. (adapted from references/meta_harness/.agents/skills/harness/SKILL.md:133 (Apache-2.0))
 
 A phase marked `once` in the `## Handoff files` table (`state-ledger.md` section 3a) changes the Expected output line of its brief: the worker saves the file with its first section (what it will do, to whom, and a key built from the phase inputs, never from the time of the attempt) before its first outside call, passes the key to the connector when the connector takes one, and adds the last section only after the call is confirmed. A re-run that the user approves after a stop carries the same key. A `once` phase is also outside the retry-once rule of the Error handling section and outside the single re-ask of the Delegating block below: after a worker error, a timeout, an invalid report or `STATUS: partial`, do not launch or ask that worker again; run `state_ledger.py resume` and follow rule O6 of `state-ledger.md` section 3a (rule O7). Write that exception into the orchestrator's error table and into the step that checks reports, and never start a `once` phase from the `NEXT` line of `rebuild`, which prints no `HALF-DONE` line. (adapted from references/openrig/docs/as-built/architecture/coordination-primitive.md:46 (Apache-2.0))
+
+A worker whose job is to judge a candidate (a QA agent, a reviewer, a judge) adds one line to the Expected output of its brief: its report opens with its verdict line, then a `CANDIDATE:` line copied from `candidate_id.py id`, then a `CARRIED:` line (`quality-gates.md` section 3-7). The orchestrator runs `id` before it spawns that worker and puts the line in the Inputs of the brief; the Report line of the block below stays as it is. Before the orchestrator commits, hands the verdict to the phase that consumes it, or resumes a run, it runs `candidate_id.py check` on the verdict file, in the step that checks reports. Exit 3 means the verdict was earned on another tree: the orchestrator treats it as not given, tells the user, and runs the judging phase on the current tree when they agree (rule R7 of `state-ledger.md` keeps a complete phase from starting unasked). Write that outcome into the orchestrator's error table as a row of its own, "a verdict whose `check` exits 3" (response: treat the verdict as not given, tell the user, run the judging phase on the current tree when they agree), and not only into the step that checks reports; the three Error handling sections above carry the row for a harness that has a worker judging a candidate. Compare the `EXCLUDES:` line that `check` prints entry by entry and ignore a trailing slash (`quality-gates.md` section 3-7, rule C2). A report with no `CANDIDATE:` line is valid under the block below and is not a ship verdict. Where no shell runs (chat, Cowork) the line reads `unverified` and any later edit voids the verdict. (adapted from references/openrig/scripts/gate-lane-consume.mjs:23-25 (Apache-2.0))
 
 The three report states and the rule that a `complete` report needs evidence come from a fresh-agent loop that validates each round's report. (adapted from references/deepseek_harness/packages/workflow/tool-ralph/src/index.ts:112 (MIT)) The single bounded re-ask, with the error fed back, comes from a task guardrail retry loop; the cap of one is ours. (adapted from references/crewai/lib/crewai/src/crewai/task.py:1327 (MIT))
 
