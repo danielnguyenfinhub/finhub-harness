@@ -1,9 +1,11 @@
 # Verdict schema
 
-File: `_workspace/02_adversarial-risk-judge_verdict.md` for runtime slices (overwritten each round), or `_workspace/02_adversarial-risk-judge_<item-id>_r<k>.md` for one adoption (one file per round, never overwritten). First line is always the totals so the orchestrator can gate on it without parsing. The round field reads `round k/3`, or `round 4 (authorised)` and later when the launch prompt records Daniel's authorisation.
+File: `_workspace/02_adversarial-risk-judge_verdict.md` for runtime slices (overwritten each round), or `_workspace/02_adversarial-risk-judge_<item-id>_r<k>.md` for one adoption (one file per round, never overwritten). First line is always the totals so the orchestrator can gate on it without parsing. The second line is `CANDIDATE:` (from `candidate_id.py id --paths <design file> [<patch file>]`, both files when the design carries a patch, computed before the first claim and again before writing) and the third is `CARRIED:`, naming the rows reused unchanged from an earlier round and the candidate they were audited on (`-` when none); see `skills/finhub-harness/references/quality-gates.md` section 3-7. (adapted from references/openrig/scripts/gate-lane-consume.mjs:23-25 (Apache-2.0)) The round field reads `round k/3`, or `round 4 (authorised)` and later when the launch prompt records Daniel's authorisation.
 
 ```markdown
 TOTALS: UPHELD 9 / REJECTED 1 / UNVERIFIED 1 — round 2/3
+CANDIDATE: files:0f1e2d3c4b5a6978 n=1 excludes=- paths=_workspace/02_strategy-architect_slices.md
+CARRIED: A1-A3 (text unchanged from round 1, audited on files:7a8b9c0d1e2f3a4b)
 
 # Adversarial verdict — slices revision 2
 

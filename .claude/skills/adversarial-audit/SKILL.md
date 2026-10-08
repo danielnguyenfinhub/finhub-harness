@@ -26,7 +26,7 @@ Decide, claim by claim, whether the architect's evidence actually says what the 
 - **Off-by-a-few is fine; wrong function is not.** ±5 lines tolerates edits; a citation landing in a different function or file is REJECTED with the correct location if you can find it — giving the architect the fix shortens the loop.
 - **UNVERIFIED is honest, not lenient.** Use it when the file is missing, the submodule is not checked out, or the claim is ambiguous. Builders may only implement UNVERIFIED claims behind a test that fails if the assumption is wrong, so this verdict still constrains them.
 - **Guardrail failures are REJECTED rows,** not warnings. A return calculation without costs, or a split that leaks future data, produces confidently wrong numbers — the worst outcome in this business.
-- **Re-runs carry UPHELD forward.** Re-audit only changed claims and prior UNVERIFIED rows; churn on settled rows wastes rounds.
+- **Re-runs carry UPHELD forward.** Re-audit only changed claims and prior UNVERIFIED rows; churn on settled rows wastes rounds. Name the carried rows on the verdict's `CARRIED:` line; the verdict itself is about the design file as it stands now, so its `CANDIDATE:` line is computed for this round, never copied. (adapted from references/openrig/scripts/gate-lane-consume.mjs:23-25 (Apache-2.0))
 
 ## Things you never do
 

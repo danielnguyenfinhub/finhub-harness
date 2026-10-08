@@ -99,9 +99,9 @@ Pick rules, applied before Phase 2 starts:
 There is no team-create/team-delete tool in v2. Named agents launched in this session form the collaboration group automatically, and `SendMessage` resumes an agent with its context intact. The judge must audit in a **fresh context**, so it is launched anew for each round rather than resumed.
 
 1. `Agent(name: "strategy-architect", subagent_type: "strategy-architect", model: "opus", run_in_background: false)` — runtime goal: read all nine `01_*_portmap.md` and the built code, write `02_strategy-architect_slices.md`; adoption goal: read the picked row of `01b_capability-scout_backlog.md`, re-open its port-map rows and the real code it touches, write `02_strategy-architect_<item>.md` per `runtime-slice-design` § Adoption design. Both end with the Authority List.
-2. `Agent(subagent_type: "adversarial-risk-judge", model: "opus")` with **no name** and a prompt that names the design file and limits it to that file plus the cited `references/` lines and read-only simulation outside the repo — write the verdict (`02_adversarial-risk-judge_verdict.md`, or `..._<item>_r<k>.md` per round), totals line first.
+2. `Agent(subagent_type: "adversarial-risk-judge", model: "opus")` with **no name** and a prompt that names the design file and limits it to that file plus the cited `references/` lines and read-only simulation outside the repo — write the verdict (`02_adversarial-risk-judge_verdict.md`, or `..._<item>_r<k>.md` per round), totals line first, then its `CANDIDATE:` and `CARRIED:` lines (`skills/finhub-harness/references/quality-gates.md` §3-7). The judge computes the line with `candidate_id.py id --paths <design file> [<patch file>]`; when the design carries a patch, both files go on it.
 3. If the totals show `REJECTED > 0`: `SendMessage({to: "strategy-architect"})` with the rejected claim ids and the judge's exact fixes, telling it to re-verify each by simulation and dispute with evidence if it disagrees; the architect revises in place. Then launch a **new** judge (fresh context, prior verdict paths passed as "prior output exists") for the next round. Max 3 rounds; if round 3 still has REJECTED > 0, stop and escalate to Daniel with the rejected claims side by side and both positions. Daniel may authorise further rounds one at a time; put `Extra round authorised by Daniel: <date>` in that round's launch prompt so the judge copies it into the verdict header.
-4. Confirm both 02 files are saved in `_workspace/`.
+4. Confirm both 02 files are saved in `_workspace/`, and run `python3 skills/finhub-harness/scripts/candidate_id.py check {verdict}` on the clean verdict. Exit 0 lets Phase 3 start; exit 3 means the design changed after the verdict, so launch a new judge. (adapted from references/openrig/scripts/gate-lane-consume.mjs:23-25 (Apache-2.0))
 5. Nothing to tear down. The architect stays addressable for later "redesign slice N" requests; sub-agent calls for Phase 3 follow directly.
 
 ### Phase 3: Build
@@ -129,17 +129,22 @@ Agent(
   model: "sonnet",
   prompt: "You are boundary-qa. Read .claude/agents/boundary-qa.md first.
     Verify {unit} against {design} and _workspace/03_runtime-builder_{unit}.md;
+    Candidate: {CANDIDATE line};
     write _workspace/03_boundary-qa_{unit}.md.
     Standing reminder: do not edit src/, tests/ or any repo file; scratch work only in a temp
     directory, deleted afterwards; the report's first line starts with RESULT: PASS or RESULT: FAIL."
 )
 ```
 
-Run builder and QA sequentially (QA depends on builder). Read the first line of the QA report:
-- `RESULT: PASS` → next slice; for an adoption, commit and push on the session's designated development branch (the branch the session instructions name, never `main`; if none is named, ask Daniel), open a draft PR, subscribe to it, then return to Phase 1b's backlog for Daniel's next pick (re-run the scout only if a pin or a map changed). Phase 4 for the adoption goal runs when Daniel asks for a "final report" or after his last pick of the session.
+Run builder and QA sequentially (QA depends on builder). After the builder returns, run `python3 skills/finhub-harness/scripts/candidate_id.py id` yourself and add its `CANDIDATE:` line to the QA prompt as `Candidate: <line>`; a builder retry changes the tree, so the next QA prompt carries a new line. Read the first line of the QA report, then run `python3 skills/finhub-harness/scripts/candidate_id.py check _workspace/03_boundary-qa_{unit}.md`:
+- `RESULT: PASS` with `check` exit 0 and `CARRIED: -` → next slice; for an adoption, commit and push on the session's designated development branch (the branch the session instructions name, never `main`; if none is named, ask Daniel), open a draft PR, subscribe to it, then return to Phase 1b's backlog for Daniel's next pick (re-run the scout only if a pin or a map changed). Phase 4 for the adoption goal runs when Daniel asks for a "final report" or after his last pick of the session.
 - `RESULT: FAIL` → re-run runtime-builder once with "prior output exists" and both report paths, then QA again. Still FAIL → stop; go to Phase 4 with the gap recorded.
 
-Nothing is committed before `RESULT: PASS`; a stop hook asking for a commit mid-build is answered with that rule, not with a commit.
+`check` exit 3 on a PASS means the tree moved after QA looked at it: do not commit, run QA on the tree as it is now. After the commit, `check --tree-only` passing with an empty `git status --short` shows the commit holds the tree QA judged; the plain `check` is then stale, so a PASS licenses one commit.
+
+For an adoption the `CLAUDE.md` change-history row belongs inside the unit: the builder adds it before QA so the judged tree includes it, and nobody edits it between `check` and the commit, because that moves the id and the commit is refused. A clone without the local `.git/info/exclude` entries must list `.claude-flow/` (and the other hook folders, such as `.codegraph/`) there before the first `id`, or QA fails with "candidate moved during QA".
+
+Nothing is committed before `RESULT: PASS` on this tree; a stop hook asking for a commit mid-build is answered with that rule, not with a commit.
 
 ### Phase 4: Verification report
 **실행 모드:** 서브 에이전트
@@ -185,6 +190,7 @@ Scout reads all nine maps and the repo inventory, never the reference code. Judg
 | Architect/judge still disagree after 3 rounds | Stop the loop; keep both positions side by side in the verdict; escalate to Daniel — never delete either view |
 | Named agent stops mid-task | SendMessage to check status; restart once; if still down, record and escalate |
 | Builder gate red | One retry with QA's defect list; still red → stop slices, report in Phase 4 |
+| `check` exits 3 on a QA PASS or a clean verdict | The verdict belongs to another tree; commit nothing, start nothing, and run QA or the judge on the tree as it stands |
 | QA tool missing (pytest/ruff/black/mypy) | Report FAIL with the missing tool; tell Daniel to run `uv pip install -e .[dev]`; never mark PASS |
 | `_workspace/` collision on new input | Move to `_workspace_{YYYYMMDD_HHMMSS}/`, never overwrite or delete |
 

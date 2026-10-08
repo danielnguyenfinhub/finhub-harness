@@ -196,6 +196,7 @@ Confirm that the implementation matches the spec and verify the **integration co
 - When you find a problem, immediately ask the responsible agent for a specific fix (file:line number + how to fix it).
 - If the problem arises at a connection point, notify the agents on both sides.
 - Send the leader a verification report that separates passed, failed and unverified items.
+- Open the report with the verdict line, then a `CANDIDATE:` line and a `CARRIED:` line (`quality-gates.md` section 3-7).
 ```
 
 ---
@@ -287,3 +288,7 @@ Pick the row for what changed. Scale the checking to what a defect would cost: a
 | Anything else | Find a way to run it directly, compare with the expectation | Inputs the builder did not test |
 
 Mobile rows from the source are not carried; no FinHub harness ships a mobile app.
+
+### 7-8. Name the candidate
+
+The line under the verdict is `CANDIDATE:`, copied from `python3 <skill dir>/scripts/candidate_id.py id` (`quality-gates.md` section 3-7). Run it when you start and compare it with the line in your brief. If they differ, write `RESULT: FAIL — candidate differs from the brief` and stop. Run it again just before you write the report. QA is read-only, so an id that moved means somebody else wrote to the tree; write `RESULT: FAIL — candidate moved during QA`. Mutation copies belong outside the tree. A cache folder that your own gate commands create inside it moves the id unless `.gitignore` hides it, so hide it there or pass `--exclude` to `id`. The `CARRIED:` line says `-` when every check in the report ran on this candidate; a check taken from an earlier report is named there with the candidate it ran on, and such a report is not a ship verdict. Where no shell runs, write `CANDIDATE: unverified (no shell)` and name the files you read. (adapted from references/openrig/scripts/gate-lane.mjs:151-154 (Apache-2.0); a report that says which evidence is carried forward, adapted from references/openrig/CHANGELOG.md:591 (Apache-2.0))

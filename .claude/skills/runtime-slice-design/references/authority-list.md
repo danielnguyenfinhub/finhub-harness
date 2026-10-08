@@ -38,4 +38,6 @@ The judge opens each `evidence` path at the line (±5 lines) and rules:
 | REJECTED | the lines do something else, the path/line is wrong, evidence is outside `references/`, or licence-blocked |
 | UNVERIFIED | file missing / submodule not checked out / ambiguous without reading beyond ±5 lines |
 
+A verdict is about the design file as it was read. The verdict's `CANDIDATE:` line names that file by content, and an edit made afterwards makes every row of the verdict stale, UPHELD rows included; the orchestrator runs `candidate_id.py check` on the verdict before a builder starts, and a stale verdict sends the design back for a new round. Rows carried forward unchanged are named on the verdict's `CARRIED:` line. (adapted from references/openrig/scripts/gate-lane-consume.mjs:23-25 (Apache-2.0))
+
 `NET-NEW` rows are not rejected for lacking a citation; the judge checks only that the reason is stated and that no reference actually contradicts it.
