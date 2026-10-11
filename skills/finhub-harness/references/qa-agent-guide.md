@@ -196,7 +196,9 @@ Confirm that the implementation matches the spec and verify the **integration co
 - When you find a problem, immediately ask the responsible agent for a specific fix (file:line number + how to fix it).
 - If the problem arises at a connection point, notify the agents on both sides.
 - Send the leader a verification report that separates passed, failed and unverified items.
-- Open the report with the verdict line, then a `CANDIDATE:` line and a `CARRIED:` line (`quality-gates.md` section 3-7).
+- Open the report with the verdict line, then a `CANDIDATE:` line, a `BASE:` line copied from the Base line of your brief, and a `CARRIED:` line (`quality-gates.md` sections 3-7 and 3-8).
+- Write `cause: context-gap` or `cause: judgment-gap` at the end of every defect row (a `- defect: file:line ...` line, or a numbered item `1. file:line ...` under a `## Defects` heading), after the `file:line` location: `judgment-gap` when the brief or the design states the requirement the defect breaks and the row cites that line, `context-gap` when no such line can be cited. List observations as `- observation:` bullets, never as numbered items. Write the heading exactly `## Defects`, put nothing but defect rows, wrapped continuation lines (indented, no list mark), `- observation:` bullets and a `none` line under it, never start any other line with the word Defect or Defects, and end the section with the next `##` heading; the checker refuses any other form (rule T2 of `quality-gates.md` section 3-8). To list changed files in a PASS, use bullets, a table or the `declared=` count of the drift row, never a column-0 numbered list whose items start with `file:line`: the checker reads each such item as a defect row wherever it sits, and refuses the PASS.
+- Write the drift row in `## Gate` (section 7-10 of this guide), then run `finding_tags.py check <your report>` last; exit 4 means the rows need fixing.
 ```
 
 ---
@@ -248,6 +250,7 @@ Record at least one adversarial probe and its outcome, even if the code handled 
 | "The code looks right" | A gate row: the command that exercises that code path, its exit code and its output. |
 | "The builder's tests pass" | Your own `pytest -q` row, then at least one `probe:` row the builder's tests do not cover. |
 | "Probably fine" | A `probe:` row aimed at the case you were unsure about. |
+| "Nothing outside the brief changed, so no check is needed" | The drift row: the changed paths from section 7-10 set against `Declared:`, with its output. |
 | "No browser / no server available" | A row showing how you looked (`which <tool>`, the session's tool list). If it is truly absent: FAIL, naming it. |
 | "Too slow to check" | Start it with a time limit; if it does not finish, FAIL with the limit and the command named. |
 | "The mutant made the tests fail, so it is killed" | The `classify` output with `STATE: CAUGHT`. A failure that came from an import error, a timeout or another test is `INVALID`; redo the mutant. |
@@ -303,3 +306,27 @@ A `mutant:` row in `## Gate` carries the whole output of `mutant_gate.py classif
 | mutant: M2 `depth > MAX` to `depth > MAX + 1` | `python3 "$REPO/skills/finhub-harness/scripts/mutant_gate.py" classify "$W/spec_m2.json" --before "$W/before.xml" --mutant "$W/mutant.xml" --after "$W/after.xml"` | 0 | `SPEC-SHA256: 9f2c...`, `STATE: CAUGHT`, `REASON: intended test failed at: assert 6 == 5` |
 
 Give the diff row and the three pytest rows (exit code and summary line each) next to it. For a mutant the design lists in its Test plan, copy `test` and `sig` from the design's row byte for byte, put the spec's sha256 next to that design row, and show that every field of your spec equals it; a mutant you add yourself is labelled "not pre-registered" in the row and never replaces a design row. The file time of the spec is the only mechanical guard on a `sig` you chose yourself. Exit 0 is the only kill. Exit 3 prints `SURVIVED` (a FAIL unless argued equivalent) or one of `INVALID`, `BASELINE-RED`, `ORDER`, which are void: keep the row, say what you changed, and run the mutant again under a new id (`M2b`) with a new spec. Never edit a report to turn a void row into a kill. Take the copy from the tree named on your `CANDIDATE:` line; when the tree changes, every earlier mutant row is carried and the mutants are run again. (adapted from references/openrig/packages/test-system/ci/result.mjs:33-34 and :50-65 (Apache-2.0))
+
+### 7-10. Drift from the brief
+
+The brief gives `Base:` and `Declared:`. `Base:` is the Base line, `git:<12 hex> excl=<12 hex or none>`, recorded once per unit before the first builder spawn. The Base step, run by the orchestrator (`Base: none` without git):
+
+```bash
+echo "Base: git:$(git -C "$REPO" rev-parse --short=12 HEAD) excl=$(f="$(git -C "$REPO" rev-parse --absolute-git-dir)/info/exclude"; if [ -f "$f" ]; then python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest()[:12])' "$f"; else echo none; fi)"
+```
+
+QA runs the drift block from the repository root, with `BASE=<12 hex digits>` set to the digits after `git:` on the Base line:
+
+```bash
+BASE=<12 hex digits>
+ENC='import sys, urllib.parse
+for p in sys.stdin.buffer.read().split(b"\0"):
+    if p:
+        print(urllib.parse.quote_from_bytes(p, safe="/._-~"))'
+git -C "$REPO" diff -z --no-renames --name-only "$BASE" -- . ':(exclude)_workspace' | python3 -c "$ENC"
+git -C "$REPO" -c core.excludesFile=/dev/null ls-files -z --others --exclude-standard -- . ':(exclude)_workspace' | python3 -c "$ENC"
+git -C "$REPO" ls-files -v -- . ':(exclude)_workspace' | grep -v '^H ' || true
+f="$(git -C "$REPO" rev-parse --absolute-git-dir)/info/exclude"; if [ -f "$f" ]; then echo "excl=$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest()[:12])' "$f")"; else echo "excl=none"; fi
+```
+
+Set each printed path against `Declared:`. `changed=` is the number of distinct paths the two listings print; `declared=` is the number of `Declared:` entries; `flags=` is the number of lines the `ls-files -v` command prints; `excl=` is the last line. The listings are NUL-safe: the block percent-encodes each name before it prints it, so a name with a newline is one line and a name with a space is `%20`. `undeclared=` lists the printed paths that are not declared, each encoded with `python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe="/._-~"))' PATH` (the same encoding), comma-separated, or `-` for none. Write the drift row of `quality-gates.md` section 3-8 (rules D1-D5), with the commands as its command cell and their output as its output cell, and copy the Base line into the report's `BASE:` line. A PASS needs `undeclared=-`, `flags=0` and the Base line's `excl=`. An undeclared path is a defect row with its cause (T2): the builder moves the change out, or the design is revised and the judge audits the revision first. Without git there is no base: the report is `RESULT: FAIL — no git` (section 3-1), with no drift row. The lists omit ignored files, as the candidate id does (section 3-7): `.gitignore` and `.git/info/exclude` apply, and the listing reads no global excludes file (`-c core.excludesFile=/dev/null`), as `candidate_id.py` does. The digest uses python3 `hashlib`, because the block already needs python3 for its encoder and `sha256sum` is not on macOS. (adapted from references/openrig/docs/reference/wave-sdlc.md:47-48 (Apache-2.0))
