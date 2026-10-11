@@ -66,3 +66,10 @@ for f in dist/finhub-harness.plugin dist/finhub-harness-skill.zip dist/finhub-ha
   [ -s "$f" ] || { echo "FAIL: $f not built" >&2; exit 1; }
   printf '%s  %s bytes\n' "$f" "$(wc -c <"$f")"
 done
+
+# 4. ship scan (advisory): list machine-specific or private values in the packed files; never fails the build.
+# adapted from references/openrig/scripts/portability-report.mjs:3-5 (Apache-2.0)
+python3 scripts/ship_scan.py dist/finhub-harness.plugin dist/finhub-harness-skill.zip dist/finhub-harness-evolve-skill.zip
+rc=$?
+[ "$rc" -eq 0 ] || echo "ship scan: exit $rc (advisory; the build is not failed)" >&2
+exit 0
