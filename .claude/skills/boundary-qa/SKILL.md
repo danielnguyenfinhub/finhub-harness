@@ -46,7 +46,7 @@ RESULT: FAIL
 | probe: python -m master_finhub.cli (no argument) | 2 | `error: the following arguments are required: ...` |
 
 ## Defects
-1. runtime/loop.py:54 — passes `message`, schema declares `text` (expected `text`).
+1. runtime/loop.py:54 — passes `message`, schema declares `text` (expected `text`). cause: judgment-gap
 ```
 
 ## Final report (Phase 4)

@@ -39,6 +39,8 @@ CARRIED: A1-A3 (text unchanged from round 1, audited on files:7a8b9c0d1e2f3a4b)
 | A4 | cited line is imports | "file-level citation should suffice" |
 ```
 
+Each REJECTED row, in the claims table or in a guardrail cell, carries one cause tag in the same row, set by rule (`skills/finhub-harness/references/quality-gates.md` section 3-8, rule T3): `cause: judgment-gap` when the cited file is one the design lists as an input and the architect could read it; `cause: context-gap` when the needed file was not routed or is not in `references/`. Doubt decides whether a claim is rejected, never the cause. The `REJECTED n` on the `TOTALS:` line counts the table cells in which the word REJECTED appears, case ignored, after `*`, `_`, backticks and `~` are read as spaces or as nothing, after HTML entities and tags are resolved, and after format and combining characters are dropped (quality-gates 3-8, T3). A row needs no leading pipe to be counted, and `✗ REJECTED`, `**Verdict:** REJECTED`, `UNVERIFIED / REJECTED` and `&#82;EJECTED` all count. A verdict table is not written inside a code fence: a fenced table row is refused. A cell that says "rejected" in another sense also counts, so it is reworded. `finding_tags.py check` refuses a row without exactly one tag or a count that differs. (adapted from references/openrig/docs/reference/wave-sdlc.md:58-62 (Apache-2.0))
+
 ## Verdict values
 
 | value | meaning | builder may implement? |

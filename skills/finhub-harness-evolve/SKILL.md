@@ -62,7 +62,9 @@ Initial harness ──▶ Use on a real project ──▶ Current harness
 
 Write each lesson as one line, so it can be checked: (adapted from references/autogpt/classic/original_autogpt/autogpt/agents/prompt_strategies/reflexion.py:114 (MIT))
 
-`LESSON | layer: <routing|execution|verification|governance|unclassified> | evidence: <path>:<line> - <what in that line supports the lesson> | fix: <file to change> - <the change, with its Why>`
+`LESSON | layer: <routing|execution|verification|governance|unclassified> | cause: <context-gap|judgment-gap> | evidence: <path>:<line> - <what in that line supports the lesson> | fix: <file to change> - <the change, with its Why>`
+
+Each lesson also names the cause of the miss, in the field right after `layer:`, set by its evidence rather than by doubt: `cause: judgment-gap` when the `evidence:` line cites something the failing step was handed (the brief, the design or a routed file), and the fix is a check; `cause: context-gap` otherwise, and the fix goes into the brief, design or route that should have carried the fact. An `unclassified` lesson carries its cause too. Where the finhub-harness skill's scripts are installed, run `python3 <finhub-harness skill dir>/scripts/finding_tags.py check <evolve report>` before the report and fix every line it refuses (exit 4); where they are not (this skill is packaged on its own), check by eye that every `LESSON` line has exactly one `cause:` with one of the two values. (adapted from references/openrig/docs/reference/wave-sdlc.md:58-62 (Apache-2.0))
 
 Use `fix: none` for an `unclassified` lesson. Then use the table below to pick the target: the layer says where in the run the failure happened, the feedback type says what kind of change fixes it.
 
