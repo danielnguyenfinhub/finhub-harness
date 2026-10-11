@@ -147,7 +147,7 @@ def test_deterministic_bytes(tmp_path: Path) -> None:
 
 def test_naive_clock_rejected(tmp_path: Path) -> None:
     root = tmp_path
-    naive = datetime(2026, 10, 1, 9, 0, 0)  # noqa: DTZ001
+    naive = datetime(2026, 10, 1, 9, 0, 0)
     store = CheckpointStore(Workspace(root), clock=lambda: naive)
     with pytest.raises(CheckpointError) as ei:
         store.create_run("r1")(_prompt())
