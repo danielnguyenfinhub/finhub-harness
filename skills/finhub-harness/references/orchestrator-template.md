@@ -342,6 +342,8 @@ A QA brief that asks for mutation checks adds two lines to Expected output: each
 
 A QA brief adds two lines to its Inputs. `Base: git:<12 hex> excl=<12 hex or none>` is recorded once per unit, before the orchestrator spawns the first builder, by the Base step of `qa-agent-guide.md` section 7-10 (`Base: none` without git); a builder re-run for the same unit gets the same line, so a commit made in an earlier round stays in the listing. The orchestrator writes that line to `_workspace/base_{unit}.txt` in the same step; a resumed run reads it from that file and never records a new Base for a unit once a builder for it has run, since a Base recorded after a builder commit hides that commit. If the file is missing on a resume, the unit stops and the user is asked. `Declared:` lists the paths the design gives for this slice or adoption (its Files or Target section), comma-separated, with no space inside a path. QA writes its drift row against both (`qa-agent-guide.md` section 7-10). The QA agent file that Step 3 generates must tell the agent to do four things, since the brief alone does not reach a rule the agent file lacks: end every defect row with a cause tag, copy the Base line into a `BASE:` line, copy the `CANDIDATE:` line, and write the drift row; an agent file without them is incomplete, and the report check below refuses what such an agent writes. The step that checks reports runs `candidate_id.py check` (exit 3 is a stale verdict) and then `python3 <skill dir>/scripts/finding_tags.py check` (exit 4 is a refused record, exit 2 a usage or input problem) on each QA report and each judge verdict it reads. A refusal goes back once to the worker that wrote the report, with the lines the checker printed, as a request for the missing tag or row: it is not a finding against the builder, and the verdict is not stale. (adapted from references/openrig/docs/reference/wave-sdlc.md:47-48 (Apache-2.0))
 
+A brief for a gated unit adds one more line to its Inputs, `Rigor: gated unit=<scope>/<item> by=<assigned-by> on=<date>`, copied by the orchestrator from the unit's row in the `## Rigor` table (the block below); the worker copies it into a `RIGOR:` line of its report. The order of the lines is fixed: a QA report runs RESULT, CANDIDATE, CARRIED, BASE, RIGOR (the RIGOR line is line 5) and a judge verdict runs TOTALS, CANDIDATE, CARRIED, RIGOR (line 4). Put it no earlier: `finding_tags.py` reads the BASE line in lines 2-4 and refuses a report that a RIGOR line has pushed it out of. The step that checks reports runs `python3 <skill dir>/scripts/rigor_check.py check <orchestrator> <WAIVERS.md or -> <scope>/<item> <PREV or -> <CHANGED> <reports...>` after `candidate_id.py check` (the stale-report guard) and `finding_tags.py check`. PREV is the previous committed copy of the orchestrator written to a file (`-` only when it has no earlier commit) and CHANGED is a file listing the paths the commit changes. Exit 4 sends a report back once for a missing or wrong `RIGOR:` line, and for a gated unit with no passing QA report, a lowered row with no receipt, or a light unit that changes the ledger it blocks the commit. Add one row to the error table: `rigor_check.py` exits 4, so do not commit, ship or start the consuming phase, show the owner the printed lines, and never write a `rigor:` row or lower the table except from the owner's own reply. Where no shell runs the check is `unverified`, and the table and any downgrade are printed in the reply. (adapted from references/openrig/docs/reference/product-journey-sdlc.md:322-332 (Apache-2.0))
+
 The three report states and the rule that a `complete` report needs evidence come from a fresh-agent loop that validates each round's report. (adapted from references/deepseek_harness/packages/workflow/tool-ralph/src/index.ts:112 (MIT)) The single bounded re-ask, with the error fed back, comes from a task guardrail retry loop; the cap of one is ours. (adapted from references/crewai/lib/crewai/src/crewai/task.py:1327 (MIT))
 
 ````markdown
@@ -379,6 +381,22 @@ A missing STATUS line, a status outside the table, or a report that fails its ro
 ````
 
 Limits. The check confirms that an evidence item is present and never opens it, so an invented path passes (seen in 1 of 3 live runs); the orchestrator keeps reflecting only facts it confirmed itself. The check is prose the orchestrator follows, not code that runs; the `SendMessage` and Workflow branches are untested, and how a Mode A `schema` result carries STATUS is UNVERIFIED. The block does not pin the case of a status word, repeated STATUS lines or the literal `none` under NEXT STEPS or BLOCKER: live, `STATUS: Complete` and `none` lines were accepted and two STATUS lines were rejected, by the model's judgement. The lint knows a short phrase list; a paraphrase passes it.
+
+## Rigor block (every template of a harness that has a Quality gates bullet)
+
+Paste once into the orchestrator, after the Delegation gate and before Step 1:
+
+```markdown
+## Rigor
+The owner assigns the class and the level; no agent selects, raises or lowers either, and no agent classifies a unit. Audited decisions (money, eligibility, compliance and client-facing text) are gated and preselected; every other kind of unit is light unless the owner assigns it gated. An agent that thinks a unit needs another level writes one sentence naming the risk to the owner and continues. Lowering a row, or running one item light, needs the user's approval and a `rigor:<scope>/<item>` row in WAIVERS.md with the owner's quoted words (a harness that never downgrades keeps no ledger).
+
+| scope | class | level | assigned-by | on |
+|---|---|---|---|---|
+| {kind of unit} | audited-decision | gated | default | {YYYY-MM-DD} |
+| {kind of unit} | other | light | owner:{name} | {YYYY-MM-DD} |
+```
+
+A unit is `<scope>/<item>`. The rules are in `quality-gates.md` section 3-10. (adapted from references/openrig/packages/daemon/specs/agents/shared/skills/pods/orchestration-team/SKILL.md:149-152 (Apache-2.0))
 
 ## Follow-up request phrasings to put in `description`
 
