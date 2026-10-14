@@ -2,13 +2,16 @@
 Adapted from references/crewai/lib/crewai/src/crewai/skills/validation.py:43 (MIT) and
 references/deepseek_harness/packages/skill/skill/src/index.ts:20 (MIT);
 link, bundled-file and duplicate-name rules adapted from references/meta_harness/scripts/validate_skills.py:72
-and references/meta_harness/scripts/audit_harness.py:117 (Apache-2.0)."""
+and references/meta_harness/scripts/audit_harness.py:117 (Apache-2.0);
+provenance rules (verified-*) adapted from references/openrig/packages/daemon/src/domain/skill-audit.ts:98-136
+and references/openrig/packages/cli/src/lib/scope/trust.ts:33-48 (Apache-2.0)."""
 
 from __future__ import annotations
 
 import re
 import sys
 from collections.abc import Iterator
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -28,6 +31,12 @@ ROW_RE = re.compile(r"^\|\s*`?([^|`]+?)`?\s*\|\s*`?([^|`]+?)`?\s*\|\s*$")
 BUILTIN = {"general-purpose", "Explore", "Plan", "statusline-setup", "claude-code-guide"}
 SKILL_KEYS = {"name", "description", "license", "allowed-tools", "metadata", "version"}
 SKILL_KEYS |= {"author", "tags", "disable-model-invocation", "user-invocable", "argument-hint"}
+VERIFY_KEYS = {"last_verified", "verified_source", "review_days"}
+SKILL_KEYS |= VERIFY_KEYS
+DAY_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+WINDOW_RE = re.compile(r"[0-9]{1,4}")
+LOCATOR_RE = re.compile(r"https?://\S+|\b(?:19|20)[0-9]{2}\b")
+MAX_WINDOW = 3650
 AGENT_KEYS = {"name", "description", "tools", "model", "color"}
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 LINK_RE = re.compile(r"!?\[[^\]\n]{0,300}\]\(\s*(<[^>\n]+>|[^)\s]+)")
@@ -188,6 +197,52 @@ def preflight_rows(body: str) -> set[tuple[str, str]]:
     return {(a.strip(), s.strip()) for a, s in found if a.strip("-: ").lower() not in ("", "none")}
 
 
+def parse_day(raw: str) -> date | None:
+    """A real calendar day written YYYY-MM-DD, else None (month 13 and 30 February are not days)."""
+    if not DAY_RE.fullmatch(raw):
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def check_provenance(path: Path, data: dict[str, str], today: date) -> None:
+    """Opt-in: silent unless the skill sets a verified key. WARN only; every message ends with a fix."""
+    present = sorted(VERIFY_KEYS & data.keys())
+    if not present:
+        return
+    raw = scalar(data.get("last_verified", ""))
+    if not raw:
+        keys = ", ".join(present)
+        msg = f"{keys} set but last_verified is missing or empty; fix: set last_verified to a YYYY-MM-DD day, or remove all three keys"
+        report("WARN", path, "verified-orphan", msg)
+        return
+    day = parse_day(raw)
+    if day is None:
+        msg = f"last_verified {raw[:40]!r} is not a real YYYY-MM-DD date; fix: write the day as YYYY-MM-DD"
+        report("WARN", path, "verified-date", msg)
+        return
+    if day > today:
+        msg = (
+            f"last_verified {raw} is after today ({today}); fix: set the day you re-read the source"
+        )
+        report("WARN", path, "verified-future", msg)
+        return
+    source = scalar(data.get("verified_source", ""))
+    if not source or "skill.md" in source.lower() or not LOCATOR_RE.search(source):
+        msg = "verified_source must name a document other than this skill, with a URL or a year; fix: name the document you re-read"
+        report("WARN", path, "verified-bare", msg)
+    window = scalar(data.get("review_days", ""))
+    if not WINDOW_RE.fullmatch(window) or not 1 <= int(window) <= MAX_WINDOW:
+        msg = f"review_days {window[:20]!r} is not valid and there is no default; fix: set whole days from 1 to {MAX_WINDOW}"
+        report("WARN", path, "verified-window", msg)
+        return
+    if (age := (today - day).days) > int(window):
+        msg = f"last verified {age} days ago; review_days is {window}; fix: re-read the source, then update last_verified"
+        report("WARN", path, "verified-stale", msg)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2 or not Path(argv[1]).is_dir():
         print("usage: lint_harness.py DIR  (DIR holds agents/ and/or skills/, e.g. .claude)")
@@ -197,6 +252,7 @@ def main(argv: list[str]) -> int:
     skills = sorted(root.glob("skills/*/SKILL.md"))
     if not agents and not skills:
         report("ERROR", root, "empty", "no agents/*.md or skills/*/SKILL.md (pass the .claude dir)")
+    today = datetime.now().astimezone().date()  # local calendar day
     names: set[str] = set()
     owners: dict[tuple[bool, str], list[Path]] = {}
     texts: dict[Path, str] = {}
@@ -208,6 +264,8 @@ def main(argv: list[str]) -> int:
         is_agent = path in agents
         keys, expect = (AGENT_KEYS, None) if is_agent else (SKILL_KEYS, path.parent.name)
         name = check_meta(path, data, keys, expect)
+        if not is_agent:
+            check_provenance(path, data, today)
         if name:
             owners.setdefault((is_agent, name), []).append(path)
         if is_agent:
