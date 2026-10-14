@@ -9,7 +9,7 @@ default; gated only when the owner assigns it). UNIT is `<scope>/<item>`: a row 
 work. LEDGER is the waiver ledger of section 3-9, or `-` for a harness that never downgrades. PREV is the
 previous committed copy of ORCHESTRATOR (for example `git show HEAD:<path>` written to a file), or `-` when
 there is none (the first commit). CHANGED is a file that lists the paths this commit changes, one per line,
-relative to the repository root, written by the caller.
+relative to the repository root, written by the caller. A path is compared after normalising and folding case; an absolute path, a drive-letter path or one that climbs out with `..` is refused.
 
 A unit runs `light` when its table row is `other, light`, or when an active ledger row has the scope
 `rigor:<scope>/<item>` (granted <= today <= expires). Lowering a row of the table against PREV (a class from
@@ -51,6 +51,7 @@ LEVELS = ("light", "gated")
 SCOPE = re.compile(r"[a-z0-9][a-z0-9._-]{0,47}")
 UNIT = re.compile(r"([a-z0-9][a-z0-9._-]{0,47})/([A-Za-z0-9][A-Za-z0-9._-]{0,63})")
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*$|^\s*(`{3,}|~{3,})\S")
+DRIVE = re.compile(r"[a-z]:")
 HEADING = re.compile(r"^## Rigor\s*$")
 HEAD_LINES = 8
 TABLE_ITEM = "table"  # the reserved item of a receipt row that lowers a row of the table
@@ -219,7 +220,18 @@ def check_report(name: str, text: str, expect: str) -> tuple[bool, list[str]]:
 
 
 def norm(path: str) -> str:
-    return posixpath.normpath(path.strip().replace("\\", "/"))
+    return posixpath.normpath(path.strip().replace("\\", "/")).casefold()
+
+
+def outside(path: str) -> bool:
+    """True for a normalised path that is absolute, has a drive letter or climbs out of the repository."""
+    return path.startswith("/") or path == ".." or path.startswith("../") or bool(DRIVE.match(path))
+
+
+def touched(name: str, paths: set[str]) -> bool:
+    """True when a changed path is the file `name`: equal, or one is the tail of the other at a slash."""
+    a = norm(name)
+    return any(a == p or a.endswith("/" + p) or p.endswith("/" + a) for p in paths)
 
 
 def check_text(
@@ -247,7 +259,16 @@ def check_text(
         downgrades, more = read_downgrades(ledger_name, ledger, scopes, today)
         bad.extend(more)
     out = [f"TODAY: {today.isoformat()}"]
-    paths = {norm(p) for p in changed if p.strip()}
+    paths: set[str] = set()
+    for n, raw in enumerate(changed, 1):
+        if raw.strip():
+            p = norm(raw)
+            paths.add(p)
+            if outside(p):
+                bad.append(
+                    f"CHANGED:{n}: {raw.strip()!r} is not a path inside the repository; "
+                    "write it relative to the repository root, as `git diff --name-only` does"
+                )
     if before is not None:
         for scope, (cls, level, by, on) in rows.items():
             was = (
@@ -283,7 +304,7 @@ def check_text(
                         f"{orch_name}: {scope}: scope removed from the Rigor table lowers rigor and "
                         f"needs an active receipt row rigor:{scope}/{TABLE_ITEM}"
                     )
-        if ledger is not None and norm(orch_name) in paths and norm(ledger_name) in paths:
+        if ledger is not None and touched(orch_name, paths) and touched(ledger_name, paths):
             bad.append(
                 f"{orch_name}: the Rigor table and the ledger change in one commit; "
                 "the receipt row is committed first, by a unit of its own"
@@ -321,7 +342,7 @@ def check_text(
                 f"NOTICE: downgrade waiver {r['id']} expired on {r['expires']}; the unit runs gated"
             )
     out.insert(1, f"EFFECTIVE: {unit} {level} ({note})")
-    if level == "light" and ledger is not None and norm(ledger_name) in paths:
+    if level == "light" and ledger is not None and touched(ledger_name, paths):
         bad.append(f"{ledger_name}: a light unit must not change the ledger")
     if level == "gated":
         expect = f"RIGOR: gated unit={unit} by={by} on={on}"

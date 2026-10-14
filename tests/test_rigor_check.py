@@ -787,3 +787,151 @@ def test_known_limits_name_the_three_unchecked_inputs_and_the_stale_receipt() ->
     assert "The caller chooses the scope a unit is filed under" in qg, "scope choice limit"
     assert "A table receipt licenses any lowering of its scope until it expires" in qg, "receipt"
     assert "a stale receipt row costs a closure unit" in qg, "stale receipt cost"
+
+
+# ---- OR-S8 follow-up: spelling of CHANGED, stale receipts, the clock, residual 13
+
+
+def test_a_case_variant_of_the_ledger_path_is_the_ledger(tmp_path: Path) -> None:
+    for spelling in ("waivers.md", "Waivers.MD", "./waivers.md", "docs/../WAIVERS.md"):
+        code, out = run(tmp_path, unit="note-draft/n1", changed=(spelling,))
+        assert "a light unit must not change the ledger" in out, f"case variant: {spelling}: {out}"
+        assert code == 4, out
+
+
+def test_table_and_ledger_in_one_commit_is_refused_for_any_spelling(tmp_path: Path) -> None:
+    for a, b in (("ORCH.md", "waivers.md"), ("./orch.md", "./WAIVERS.md")):
+        code, out = run(tmp_path, prev=orch(), changed=(a, b), reports=(report(),))
+        msg = "the Rigor table and the ledger change in one commit"
+        assert msg in out, f"one commit: {a} {b}: {out}"
+        assert code == 4, out
+
+
+def test_a_changed_path_outside_the_repository_is_refused(tmp_path: Path) -> None:
+    for spelling in (
+        "/work/repo/WAIVERS.md",
+        "C:/work/repo/WAIVERS.md",
+        "\\\\host\\share\\WAIVERS.md",
+        "../WAIVERS.md",
+        "..",
+    ):
+        code, out = run(tmp_path, changed=(spelling,), reports=(report(),))
+        assert (
+            "CHANGED:1:" in out and "is not a path inside the repository" in out
+        ), f"outside: {spelling}: {out}"
+        assert code == 4, out
+
+
+def test_an_absolute_ledger_argument_matches_a_root_relative_entry() -> None:
+    _, out = MOD.check_text(
+        "orch.md", orch(), "/work/repo/WAIVERS.md", LEDGER_HEAD, "note-draft/n1", None,
+        ["WAIVERS.md"], [], TODAY,
+    )  # fmt: skip
+    assert "a light unit must not change the ledger" in "\n".join(out), f"absolute argument: {out}"
+
+
+def test_a_root_relative_entry_deeper_than_the_argument_matches() -> None:
+    _, out = MOD.check_text(
+        "orch.md", orch(), "WAIVERS.md", LEDGER_HEAD, "note-draft/n1", None,
+        ["tools/WAIVERS.md"], [], TODAY,
+    )  # fmt: skip
+    assert "a light unit must not change the ledger" in "\n".join(out), f"deeper entry: {out}"
+
+
+def test_an_absolute_orchestrator_argument_matches_a_root_relative_entry() -> None:
+    _, out = MOD.check_text(
+        "/work/repo/orch.md", orch(), "WAIVERS.md", LEDGER_HEAD, UNIT, orch(),
+        ["orch.md", "WAIVERS.md"], [("r.md", report())], TODAY,
+    )  # fmt: skip
+    msg = "the Rigor table and the ledger change in one commit"
+    assert msg in "\n".join(out), f"absolute orchestrator argument: {out}"
+
+
+def test_an_entry_that_is_only_the_end_of_the_argument_is_not_the_ledger(tmp_path: Path) -> None:
+    code, out = run(tmp_path, unit="note-draft/n1", changed=("ers.md",))
+    assert "a light unit must not change the ledger" not in out, f"argument-tail match: {out}"
+    assert code == 0, out
+
+
+def test_an_entry_that_only_ends_with_the_argument_is_not_the_ledger(tmp_path: Path) -> None:
+    code, out = run(tmp_path, unit="note-draft/n1", changed=("mywaivers.md",))
+    assert "a light unit must not change the ledger" not in out, f"path-tail match: {out}"
+    assert code == 0, out
+
+
+def test_a_receipt_row_for_a_removed_scope_is_refused_at_the_next_commit(tmp_path: Path) -> None:
+    gone = ROWS.replace("| note-draft | other | light | owner:daniel | 2026-10-14 |\n", "")
+    ledger = LEDGER_HEAD + dg(unit="note-draft/table", expires="2026-12-01")
+    code, out = run(
+        tmp_path, table=orch(gone), prev=orch(gone), ledger=ledger, reports=(report(),),
+        today=date(2026, 10, 20),
+    )  # fmt: skip
+    assert (
+        "downgrade waiver names no scope and item of the Rigor table" in out
+    ), f"removed-scope receipt is refused: {out}"
+    assert code == 4, out
+
+
+def test_a_receipt_row_for_a_lowered_scope_is_clean_for_the_script_and_red_for_the_ledger(
+    tmp_path: Path,
+) -> None:
+    ledger = LEDGER_HEAD + dg(unit="client-email/table", expires="2026-10-15")
+    late = date(2026, 10, 20)
+    code, out = run(
+        tmp_path, table=orch(LOWERED), prev=orch(LOWERED), ledger=ledger, unit="client-email/x",
+        today=late,
+    )  # fmt: skip
+    assert code == 0, f"lowered-scope receipt stays clean for rigor_check: {out}"
+    lcode, lines = MOD.wl.check_text("WAIVERS.md", ledger, late)
+    assert lcode == 4 and "EXPIRED" in "\n".join(
+        lines
+    ), f"lowered-scope receipt is red for the ledger: {lines}"
+
+
+def test_rg3_says_which_check_goes_red_for_a_stale_receipt() -> None:
+    qg = read(QUALITY_GATES)
+    kept = "`rigor_check.py` stays clean, and `waiver_ledger.py check` is red from the day after `expires`"
+    assert kept in qg, "RG3 names the lowered-scope case"
+    gone = "refuses the row as naming no scope of the table (exit 4), even before `expires`"
+    assert gone in qg, "RG3 names the removed-scope case"
+    assert "stale like any other row" not in qg, "RG3 old wording gone"
+    assert "a stale receipt row costs a closure unit" in qg, "RG3 cost sentence kept"
+
+
+def test_3_10_states_the_local_calendar_date_clock() -> None:
+    qg = read(QUALITY_GATES)
+    sec = qg[qg.index("### 3-10.") : qg.index("## 4. Honest reporting")]
+    assert "datetime.now().astimezone().date()" in read(SCRIPT), "script clock call"
+    assert "datetime.now().astimezone().date()" in sec, "3-10 names the rigor_check clock call"
+    assert "the process time zone is the only clock input" in sec, "3-10 clock limit"
+    ledger = REPO / "skills/finhub-harness/scripts/waiver_ledger.py"
+    assert "date.today()" in read(ledger), "ledger clock call"
+    assert "(`date.today()`)" in qg[qg.index("### 3-9.") : qg.index("### 3-10.")], "3-9 clock call"
+
+
+def test_the_path_spelling_limit_is_stated_in_3_10() -> None:
+    qg = read(QUALITY_GATES)
+    sec = qg[qg.index("### 3-10.") : qg.index("## 4. Honest reporting")]
+    assert "Path spelling of CHANGED" in sec, "path spelling bullet"
+    for named in (
+        "a symbolic or hard link",
+        "`WAIVER~1.MD`",
+        "`core.quotePath`",
+        "`--no-renames`",
+        "byte order mark",
+        "case-sensitive file system",
+    ):
+        assert named in sec, f"unclosed spelling named: {named}"
+
+
+def test_the_residuals_bullet_does_not_call_route_13_accepted() -> None:
+    qg = read(QUALITY_GATES)
+    start = qg.index("- Accepted residuals (Daniel")
+    bullet = qg[start : qg.index("\n", start)]
+    assert (
+        "Route 13 was found by the fourth boundary-qa run and is not accepted" in bullet
+    ), "route 13 is not called accepted"
+    assert (
+        "and route 13 by the fourth boundary-qa run, and Daniel accepted them" not in bullet
+    ), "old route 13 wording gone"
+    assert "OR-D4-R13" in bullet, "route 13 names its removed ledger row"
