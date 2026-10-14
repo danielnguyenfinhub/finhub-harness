@@ -265,6 +265,8 @@ When the user explicitly asks for a team or names the roles, build what was aske
 
 Of the two levels in §1-6, the middle one (root, coordinator, worker) needs a one-sentence reason in the orchestrator: the sub-domain or dependency the root cannot hold. Without it, workers report to the root.
 
+A judge or QA role of the gate chain (Authority List audit, boundary QA) gets a phase only when the `## Rigor` table runs its unit `gated` and no downgrade row is active for the item. The role's name, an idle seat and an earlier finding add none; a unit that runs `light` has no judge or QA phase. Roles the user asked for, the producer-reviewer pattern and the other verification patterns are unaffected: this rule governs only that gate chain. (adapted from references/openrig/packages/daemon/specs/agents/shared/skills/pods/orchestration-team/SKILL.md:162-164 (Apache-2.0))
+
 (adapted from references/meta_harness/.agents/skills/harness/references/agent-design-patterns.md:221 (Apache-2.0); adapted from references/meta_harness/docs/architecture/role-contract.md:49 (Apache-2.0))
 
 ## 7. Designing agents for reuse

@@ -197,6 +197,7 @@ Confirm that the implementation matches the spec and verify the **integration co
 - If the problem arises at a connection point, notify the agents on both sides.
 - Send the leader a verification report that separates passed, failed and unverified items.
 - Open the report with the verdict line, then a `CANDIDATE:` line, a `BASE:` line copied from the Base line of your brief, and a `CARRIED:` line (`quality-gates.md` sections 3-7 and 3-8).
+- Write a fifth line `RIGOR:` copied from the `Rigor:` line of your brief. The lines run RESULT, CANDIDATE, CARRIED, BASE, RIGOR; a RIGOR line placed earlier pushes BASE out of the window the checker reads. You do not choose or change a level or a class, and you add no check because an earlier one found something; you re-check that finding once (`quality-gates.md` section 3-10).
 - Write `cause: context-gap` or `cause: judgment-gap` at the end of every defect row (a `- defect: file:line ...` line, or a numbered item `1. file:line ...` under a `## Defects` heading), after the `file:line` location: `judgment-gap` when the brief or the design states the requirement the defect breaks and the row cites that line, `context-gap` when no such line can be cited. List observations as `- observation:` bullets, never as numbered items. Write the heading exactly `## Defects`, put nothing but defect rows, wrapped continuation lines (indented, no list mark), `- observation:` bullets and a `none` line under it, never start any other line with the word Defect or Defects, and end the section with the next `##` heading; the checker refuses any other form (rule T2 of `quality-gates.md` section 3-8). To list changed files in a PASS, use bullets, a table or the `declared=` count of the drift row, never a column-0 numbered list whose items start with `file:line`: the checker reads each such item as a defect row wherever it sits, and refuses the PASS.
 - Write the drift row in `## Gate` (section 7-10 of this guide), then run `finding_tags.py check <your report>` last; exit 4 means the rows need fixing.
 ```
@@ -266,6 +267,10 @@ These checks apply only to findings outside the PASS conditions in `quality-gate
 - **Only fixable by violating an interface that the design says an outside party owns?**
 
 A finding set aside by any of these is still listed in the report as `observation:` with the line you opened as evidence, so it cannot disappear. None of these checks waives any PASS condition in `quality-gates.md` §3-1: a failed or skipped gate or proof command, a skipped probe, a probe whose observed behaviour differs from the design (an error-path probe that exits non-zero as designed is not a failure), a proof command with the wrong output, any boundary mismatch, a compliance-sweep hit, or a surviving non-equivalent mutant. (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:315 (MIT))
+
+### 7-5b. No ratchet
+
+The checks you run are the ones this definition and the brief list. A finding already made is re-checked after the fix; it is not answered by a new kind of check. A concrete unresolved risk beyond the list goes in the report body as an `- observation:` bullet for the owner. (adapted from references/openrig/docs/reference/product-journey-sdlc.md:177-178 (Apache-2.0))
 
 ### 7-6. Standing reminder
 
