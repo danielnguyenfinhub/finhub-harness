@@ -16,6 +16,7 @@ This guide explains in detail how to raise the quality of skills built with the 
 7. [Data schema standard](#7-data-schema-standard)
 8. [What to leave out of a skill](#8-what-not-to-include-in-a-skill)
 9. [Designing skills for reuse](#9-designing-skills-for-reuse)
+10. [Skills that encode rules that change](#10-skills-that-encode-changing-rules)
 
 ---
 
@@ -263,3 +264,38 @@ For example, generalising a "fintech risk assessment PDF" skill goes as follows.
 If the scope of responsibility was defined from the start as "fintech risk assessment", do not generalise it; keep it as a separate skill.
 
 Extending an existing skill can also change the behaviour of the agents that use it. Before extending, check which agents use the skill, and reflect the wider scope of use in the `description`.
+
+---
+
+<a id="10-skills-that-encode-changing-rules"></a>
+
+## 10. Skills that encode rules that change
+
+Some skills hold facts that go out of date: a lender's serviceability policy, a tax rate or threshold, a regulator's guidance. Such a skill opts in to provenance with three frontmatter keys. A skill about method leaves them out, and the lint then says nothing about it.
+
+```yaml
+last_verified: "2026-10-01"
+verified_source: "T1 ASIC Regulatory Guide 209 (Dec 2019 version), asic.gov.au, read 2026-10-01"
+review_days: 60
+```
+
+The values above are an illustration, not a checked reference.
+
+- `last_verified`: the day a person last re-read the source and confirmed the skill still matches it. Format `YYYY-MM-DD`, quoted. It does not mean the skill was tested.
+- `verified_source`: the document that was re-read, in a form someone else can re-open: a URL, or an issuer reference with its version or date. Not the skill itself.
+- `review_days`: how many days the date may age before the lint calls the skill stale, 1 to 3650. There is no default. Choose it from how often the source changes.
+
+Source tiers (the FinHub research scheme; start `verified_source` with the tier):
+
+| tier | sources |
+|---|---|
+| T1 | RBA, ASIC, ATO, APRA, ABS, official lender documents |
+| T2 | MFAA, FBAA, CoreLogic, PropTrack, major verified news |
+| T3 | technical documentation, credentialed analysis |
+| T4 | blogs, social media, SEO pages; flag any use in the skill body |
+
+Lender-policy and rate claims rest on T1. What the lint does not do: it does not read tiers, and it does not date each figure. One `last_verified` covers the whole skill, so it does not satisfy "every rate and figure dated"; write the as-at date next to each rate or figure in the skill body yourself.
+
+Chat and Cowork: top-level keys are expected to be ignored by Claude Code and plugin loaders, not checked here. Which frontmatter keys a chat or Cowork upload accepts is UNVERIFIED (Anthropic's skill-creator validator allows only `name`, `description`, `license`, `allowed-tools`, `metadata` and `compatibility`). Test an upload before relying on the keys; if it is refused, record the date in the skill body.
+
+The lint prints a WARN, never an ERROR, and each line ends with a fix: `verified-date`, `verified-future`, `verified-bare`, `verified-window`, `verified-stale`, `verified-orphan`. Age equal to the window is still fresh. It uses the local calendar date of the machine that runs it, so a runner in UTC can read a same-day date as future for part of the author's day; re-run on the author's machine. It cannot read the source, so it cannot tell whether the skill still matches it. (adapted from references/openrig/packages/daemon/src/domain/skill-audit.ts:98-136 (Apache-2.0))
