@@ -1,0 +1,5 @@
+finhub-ops-pack
+Adapted from harness-100 (https://github.com/danielnguyenfinhub/harness-100, commit 8e8d35c), licensed under the Apache License, Version 2.0.
+
+Changes: skill files renamed to SKILL.md; agent files given tool and model scoping; data-pipeline and licence-matrix files re-translated into English from the Korean originals because the shipped English text had dropped words; a client-facing draft-only rule added to the two chatbot agents.
+Each adapted file keeps its original name. See the Apache-2.0 text in the repository LICENSE.
