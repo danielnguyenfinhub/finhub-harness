@@ -8,17 +8,28 @@ cd "$(dirname "$0")/.." || exit 1
 fail=0
 err() { echo "FAIL: $*" >&2; fail=1; }
 
-# 1. plugin.json: valid JSON, kebab-case name
+# 1. plugin.json: valid JSON, kebab-case name, description 1-500 characters
 manifest=.claude-plugin/plugin.json
 if [ ! -f "$manifest" ]; then
   err "$manifest missing"
 else
-  python3 - "$manifest" <<'PY' || err "$manifest invalid (bad JSON or non kebab-case name)"
+  if python3 - "$manifest" <<'PY'
 import json, re, sys
 d = json.load(open(sys.argv[1]))
 n = d.get("name", "")
 assert isinstance(n, str) and re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", n), n
 PY
+  then
+    python3 - "$manifest" <<'PY' || err "$manifest description must be 1-500 characters (the plugin installer rejects longer)"
+import json, sys
+s = json.load(open(sys.argv[1])).get("description")
+n = len(s) if isinstance(s, str) else 0
+if not 1 <= n <= 500:
+    sys.exit(f"description is {n} characters; allowed 1-500")
+PY
+  else
+    err "$manifest invalid (bad JSON or non kebab-case name)"
+  fi
 fi
 
 # 2. required skills present; every skill passes the shared harness lint
