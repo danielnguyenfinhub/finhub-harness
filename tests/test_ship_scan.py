@@ -295,3 +295,43 @@ def test_dotted_quad_followed_by_a_dot_is_not_an_address() -> None:
         assert found == [], f"an address followed by a dot must not be reported: {text!r}"
     for text in ("10.1.2.3 end\n", "see 10.1.2.3\n"):
         assert len(cats(mod.scan_text(text), "network-address")) == 1, text
+
+
+@pytest.mark.parametrize(
+    ("desc", "ok"),
+    [("x" * 500, True), ("x" * 501, False), (None, False)],
+    ids=["500-ok", "501-refused", "missing-refused"],
+)
+def test_packager_enforces_the_manifest_description_limit(
+    tmp_path: Path, desc: str | None, ok: bool
+) -> None:
+    import json
+
+    for name in (".claude-plugin", "skills"):
+        shutil.copytree(
+            REPO / name, tmp_path / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+        )
+    for name in ("LICENSE", "NOTICE", "README.md"):
+        if (REPO / name).exists():
+            shutil.copy(REPO / name, tmp_path / name)
+    (tmp_path / "scripts").mkdir()
+    shutil.copy(PACKAGER, tmp_path / "scripts/package-plugin.sh")
+    (tmp_path / "scripts/ship_scan.py").write_text("import sys\nsys.exit(0)\n", encoding="utf8")
+    manifest = tmp_path / ".claude-plugin/plugin.json"
+    data = json.loads(manifest.read_text(encoding="utf8"))
+    if desc is None:
+        del data["description"]
+    else:
+        data["description"] = desc
+    manifest.write_text(json.dumps(data), encoding="utf8")
+    proc = subprocess.run(
+        ["bash", "scripts/package-plugin.sh"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (proc.returncode == 0) == ok, "over-limit or missing description must be refused"
+    assert (tmp_path / "dist").exists() == ok, "nothing may be packaged on a refused manifest"
+    if not ok:
+        assert "description" in proc.stderr, "the FAIL message must name the description"
