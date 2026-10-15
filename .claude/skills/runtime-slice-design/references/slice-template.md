@@ -55,6 +55,11 @@ None (stdlib only).
 ### Quant guardrails
 Not applicable (no pricing, returns or data splits in this slice).
 
+### Cost statement
+| addition | scenario | caused by | cost to others |
+|---|---|---|---|
+| unknown tool or bad args returns an error result | the model emits a tool name or arguments outside `ToolSpec.params` | the model, on any turn | one spent step toward `max_steps`; the loop goes on and the model can retry |
+
 ### Out of scope
 Real LLM providers (slice 4), compaction (slice 2), sandboxing (slice 3).
 ~~~
@@ -70,4 +75,5 @@ Real LLM providers (slice 4), compaction (slice 2), sandboxing (slice 3).
 | Proof | One test and/or one command; exact expected output |
 | Dependencies | Name + why stdlib cannot do it; adding one is AMBER for the builder |
 | Quant guardrails | For eval/verifier/backtest/pricing slices: one line per guardrail from quant-guardrails.md; otherwise "Not applicable" with reason |
+| Cost statement | One row per refusal, prompt or required step the slice adds (scenario, caused by, cost to others), or `none; this slice adds no refusal, prompt or required step`; rules CS1-CS6 of `quality-gates.md` 3-11 (adapted from references/openrig/CONTRIBUTING.md:29-31 (Apache-2.0)) |
 | Out of scope | What the next slices own, so the builder does not drift |

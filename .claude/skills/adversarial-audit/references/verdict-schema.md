@@ -31,6 +31,12 @@ RIGOR: gated unit=master-finhub-unit/OR-S8 by=owner:daniel on=2026-10-14
 | 1 | N/A no pricing | N/A | N/A | N/A | N/A | N/A |
 | 11 | PASS 5 bps default | REJECTED shorts free | PASS 2 bps | PASS t-1 features | PASS disclosed | PASS walk-forward |
 
+## Cost statement
+
+| row | verdict | additions found | reason |
+|---|---|---|---|
+| cost statement | UPHELD | 1 (slice 3 path denylist) | scenario, cause and cost to others each name a case |
+
 ## Escalation
 
 (only when round 3/3 and REJECTED > 0)
@@ -52,6 +58,8 @@ Each REJECTED row, in the claims table or in a guardrail cell, carries one cause
 
 Guardrail cell values: `PASS <how>`, `REJECTED <why>`, `N/A <why>`. A REJECTED guardrail counts toward the REJECTED total.
 
+The `cost statement` row is ruled once per design, in its own table: `UPHELD`, `REJECTED <why>` or `N/A <what was read>` (`skills/finhub-harness/references/quality-gates.md` section 3-11). A REJECTED cell counts toward the REJECTED total and carries one cause tag in its row, like any other REJECTED cell. The reason cell avoids the word "rejected" when it means something else, because the count reads every cell. (adapted from references/openrig/CONTRIBUTING.md:29-31 (Apache-2.0))
+
 ## Message to architect (SendMessage body)
 
 ```
@@ -59,6 +67,7 @@ TOTALS: UPHELD 9 / REJECTED 1 / UNVERIFIED 1 — round 2/3
 REJECTED A4: cites imports; PING emission is at streaming_utils.py:61
 UNVERIFIED A7: llm.py:210 is a 200-line function; cite the routing line
 GUARDRAIL slice 11 G2: shorts have no borrow cost
+COST STATEMENT: slice 3 path denylist has no cost-to-others cell
 ```
 
 When REJECTED = 0, send `clean` with the totals line.
