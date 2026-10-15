@@ -1,0 +1,13 @@
+{
+  "name": "finhub-ops-pack",
+  "version": "0.1.0",
+  "description": "Small pack of operations skills and agents for FinHub: data-pipeline quality and DAG orchestration (Mercury sync, rate sweeps), chatbot intent taxonomy and conversation-flow validation (SMS and portal flows), and an open-source licence compatibility matrix. Adapted from harness-100 (Apache-2.0). Draft-only for anything a client will read.",
+  "author": {
+    "name": "Daniel Nguyen",
+    "url": "https://github.com/danielnguyenfinhub"
+  },
+  "homepage": "https://github.com/danielnguyenfinhub/finhub-harness",
+  "repository": "https://github.com/danielnguyenfinhub/finhub-harness",
+  "license": "Apache-2.0",
+  "keywords": ["data-quality", "dag", "chatbot", "intent-taxonomy", "licence", "finhub"]
+}
