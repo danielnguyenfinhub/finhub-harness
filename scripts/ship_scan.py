@@ -226,4 +226,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+        if sys.stdout is not None:  # closed with >&-: print did nothing, so flush has nothing
+            sys.stdout.flush()
+    except BrokenPipeError:  # the reader hung up (| head -1): not a fault of ours
+        sys.stdout = None  # so the exit-time flush cannot fail again
+        code = 141  # 128 + SIGPIPE, the status a shell reports for a writer whose pipe closed
+    sys.exit(code)
