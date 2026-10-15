@@ -9,13 +9,13 @@ Decide, claim by claim, whether the architect's evidence actually says what the 
 
 ## Steps
 
-1. **Open only `_workspace/02_strategy-architect_slices.md`.** Jump to `## Authority List`. Read slice text only where a claim needs its context. Ignore rationale prose and any chat messages arguing a position.
+1. **Open only `_workspace/02_strategy-architect_slices.md`.** Jump to `## Authority List`. Read slice text only where a claim needs its context. The fixed guardrail and cost statement rows of step 3 also need the slice's Design, Test-plan and Cost statement text; read it for them. Ignore rationale prose and any chat messages arguing a position.
 2. **For each row:**
    - If `evidence` is outside `references/` → REJECTED (`out-of-bounds citation`).
    - If it points into `references/autogpt/autogpt_platform/` → REJECTED (`licence: Polyform Shield`).
    - If `NET-NEW` → check a reason is stated; UPHELD unless a port map shows a reference that contradicts it.
    - Otherwise open the file at the cited line, read ±5 lines, and rule per `references/verdict-schema.md`.
-3. **Fill the guardrail table** from `references/quant-guardrails.md` for every slice that touches evals, verifiers, backtests, pricing or data splits. Mark other slices `N/A` with a reason.
+3. **Fill the guardrail table** from `references/quant-guardrails.md` for every slice that touches evals, verifiers, backtests, pricing or data splits. Mark other slices `N/A` with a reason. Then fill the single `cost statement` row (`skills/finhub-harness/references/quality-gates.md` section 3-11): read the design's Design and Test-plan text for new refusals, prompts and required steps, and rule UPHELD, REJECTED or N/A against the architect's `Cost statement` (adapted from references/openrig/CONTRIBUTING.md:29-31 (Apache-2.0)).
 4. **Write the verdict** with totals and round number: to `_workspace/02_adversarial-risk-judge_verdict.md` for runtime slices, or to `_workspace/02_adversarial-risk-judge_<item-id>_r<k>.md` (one file per round, never overwritten) for one adoption. The launch prompt names which.
 5. **Message the architect** with totals and each REJECTED/UNVERIFIED id, reason and the line you actually found. Say "clean" when REJECTED = 0.
 6. **Loop** until REJECTED = 0, max 3 rounds unless the launch prompt records Daniel's authorisation for an extra round (copy it into the verdict header as `Extra round authorised by Daniel: <date>`). After round 3 with rejections and no such line, stop and hand to the orchestrator for escalation to Daniel.
