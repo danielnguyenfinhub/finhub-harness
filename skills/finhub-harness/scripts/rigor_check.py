@@ -225,7 +225,7 @@ def norm(path: str) -> str:
 
 def outside(path: str) -> bool:
     """True for a normalised path that is absolute, has a drive letter or climbs out of the repository."""
-    return path.startswith("/") or path == ".." or path.startswith("../") or bool(DRIVE.match(path))
+    return path == ".." or path.startswith(("/", "../")) or bool(DRIVE.match(path))
 
 
 def touched(name: str, paths: set[str]) -> bool:

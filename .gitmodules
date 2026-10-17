@@ -34,3 +34,7 @@
 	path = references/openrig
 	url = https://github.com/mvschwarz/openrig
 	shallow = true
+[submodule "references/harness_100"]
+	path = references/harness_100
+	url = https://github.com/danielnguyenfinhub/harness-100
+	shallow = true
