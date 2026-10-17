@@ -155,7 +155,8 @@ def main(argv: list[str], today: date | None = None) -> int:
         return 2
     try:
         text = Path(argv[2]).read_bytes().decode("utf-8")
-        code, lines = check_text(argv[2], text, today or date.today())
+        # date.today() is the clock quality-gates 3-9 names; keep it.
+        code, lines = check_text(argv[2], text, today or date.today())  # noqa: DTZ011
     except (OSError, UnicodeDecodeError) as e:
         print(f"waiver_ledger: cannot read {argv[2]}: {e}", file=sys.stderr)
         return 2

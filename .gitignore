@@ -9,3 +9,8 @@ __pycache__/
 .checkpoints/
 
 dist/
+# local agent-tool state (plugin hooks), never committed
+.harnesskit/
+.claude-flow/
+.swarm/
+ruvector.db

@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import sys
 import types
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -315,7 +315,7 @@ def test_a_file_with_no_table_or_a_wrong_header_is_a_usage_error() -> None:
 
 
 def test_cli_exit_codes_use_the_real_clock(tmp_path: Path) -> None:
-    t = date.today()
+    t = datetime.now().astimezone().date()
     ok = tmp_path / "ok.md"
     g = (t - timedelta(days=10)).isoformat()
     ok.write_text(HEADER + row(granted=g, expires=(t + timedelta(days=30)).isoformat()))
@@ -375,7 +375,7 @@ def refused(text: str, today: date) -> list[str]:
 
 
 def test_the_shipped_ledger_parses_with_no_refused_row() -> None:
-    bad = refused(LEDGER.read_text(encoding="utf-8"), date.today())
+    bad = refused(LEDGER.read_text(encoding="utf-8"), datetime.now().astimezone().date())
     assert not bad, f"the shipped WAIVERS.md must have no refused row: {bad}"
 
 
