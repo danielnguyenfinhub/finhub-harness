@@ -78,6 +78,18 @@ Use `fix: none` for an `unclassified` lesson. Then use the table below to pick t
 | Execution mode mismatch | Orchestrator | "It is the same fan-out every time and it is slow" → switch to workflow mode |
 | Scale/cost | Orchestrator | "It uses too many tokens" → shrink the default scale, add budget linkage |
 
+**Do nothing unless the evidence calls for a change.** Most runs of this skill end with no edit, and that is a correct result, not a failure. A change needs a `LESSON` line that is not `unclassified`, whose `fix:` names a file and whose `evidence:` line you opened. If no line meets all three, this is a no-op run: skip Phase 3, take no backup, add no change-history row, and write the Phase 5 report with the first line `NO-OP: <one sentence on what you read and why nothing justified a change>`, then any `unclassified` `LESSON` lines and `NOT CAPTURED` lines, and run the Phase 4 secrets command on it. A request to evolve the harness is still answered; only the edit is skipped. (adapted from references/cowagent/agent/evolution/prompts.py:29-33 (MIT); a pass with nothing to say leaves no record, adapted from references/cowagent/agent/evolution/record.py:34-35 (MIT))
+
+The `finding_tags.py check` of this phase exits 2 ("no record in file") on a report with no `LESSON` line. On a no-op run with no lesson lines that is the expected answer and not a refusal. Do not add a lesson line to make it pass. With one or more `LESSON` lines, the check runs as above and must exit 0.
+
+**Do not write these down as lessons.** Each would harden into a rule the harness later cites against itself. (adapted from references/cowagent/agent/evolution/prompts.py:103-112 (MIT))
+- An environment failure on the user's machine: a missing binary, an unset credential, an uninstalled package. The user can fix it. It is a lesson only when the harness file that should have declared or checked that prerequisite does not, shown by a search that finds nothing (Phase 1 step 6). With no shell you cannot run that search: write `search: not run` on the item's `NOT CAPTURED` line.
+- A negative claim about a tool, surface or feature ("X does not work"). Write the observation instead (surface, command, what it printed, date) or leave it out, as the "Where this runs" paragraph of Phase 1 does for chat and Cowork.
+- A one-off narrative: what happened in this one report or job, with no class of work behind it. If Phase 3 step 1 cannot generalise it beyond this case, it is not a lesson.
+- One error that cleared on retry. The same failure in the same agent across two or more runs is still the Phase 1 signal.
+
+Give each item you leave out one line of the report, `NOT CAPTURED: <environment|negative-claim|one-off|retry> - <what>`. It is not a `LESSON` line, so it needs no cause tag, and `finding_tags.py` reads only lines that begin `LESSON |`. List what the run showed or the user raised, never everything you checked.
+
 **Scope judgement:** if the change needs a new agent, a deleted agent or an architectural redesign, do not do it in this skill; point to the finhub-harness skill (the extend-an-existing-configuration procedure in its Phase 0). Evolve focuses on **adjusting the existing configuration**.
 
 ### Phase 3: Generalise and apply
@@ -89,6 +101,7 @@ Use `fix: none` for an `unclassified` lesson. Then use the table below to pick t
 3. Apply changes one at a time, and run Phase 4 right after each change.
 4. **Regression guard:** if a fix would reverse an earlier fix in the change history, tell the user about the conflict and get confirmation. (If it was shortened before for "too long" and now the complaint is "too short", the right answer is a criterion that satisfies both.)
 5. **Keep the language of the existing file.** Sentences you add to agents, skills, orchestrators and `CLAUDE.md` are written in the language already used in the file being modified. Do not mix this skill's language into a harness written in a different language.
+6. **Fix the source, not the symptom.** When the evidence line shows that the cause is an instruction in a harness file that is wrong, missing or out of date, the `fix:` edits that file. A corrected output under `_workspace/`, a change-history row or a `remember` note does not stop the miss and never stands in for the edit. If no harness file holds the cause (the input data was wrong, say), the lesson is `unclassified` with `fix: none`, and nothing is edited for it. For a lesson that has a fix, the cause tag sets where the edit goes: into the brief, design or route that should have carried the fact (`context-gap`), or into a check (`judgment-gap`). (adapted from references/cowagent/agent/evolution/prompts.py:61-66 (MIT))
 
 ### Phase 4: Update the change history and verify
 
@@ -120,11 +133,13 @@ Use `fix: none` for an `unclassified` lesson. Then use the table below to pick t
 
 Write the report to `_workspace/evolve-report.md` (create `_workspace/` if missing), then run the Phase 4 secrets command, whole, so that it greps that file, and give the user the same text. Where there is no shell, give it inline and write "secret check: not run".
 
+**Report only what changed.** A file you edited counts as changed when `diff -q <backup> <file>` (Phase 4 step 5) says it differs, and it appears in the report only with that line beside it. A file this run created has no backup to compare, so it is reported as `new, no backup`, as the Backups line below says. Never describe a change you meant to make and did not. (adapted from references/cowagent/agent/evolution/prompts.py:39-41 (MIT))
+
 Report to the user:
-- A summary of the captured delta (initial configuration → current).
+- The captured delta (initial configuration → current) for the files you changed or created. No line for a file you read and left alone.
 - The changes applied this time and the generalisation behind each.
 - Feedback you decided not to apply, and why (if any).
-- The improvement expected on the next run.
+- The improvement expected on the next run, one per change applied; on a no-op run, the `NO-OP:` line instead.
 - Every `LESSON` line. The `unclassified` ones are the feedback not applied, each with the artefact that would settle it. (adapted from references/deepseek_harness/.agents/notes/README.md:14 (MIT))
 - Backups: for each edited file, its backup path and the `cmp` result taken before the edit; each new file marked "new, no backup". To undo a change: `cp <file>.bak <file>`. Do not delete a backup yourself; tell the user that a `.bak` left under `skills/` is packaged by `scripts/package-plugin.sh`, so it should go once the change is accepted.
 - Secret check: what the Phase 4 grep printed (nothing, or what you redacted).
@@ -134,8 +149,9 @@ Report to the user:
 - **The delta is an asset.** The more change history accumulates, the more a later harness build in the same domain starts from a draft closer to release state. Never delete the history.
 - **No application without generalisation.** Adding one rule per case, 1:1, turns a skill into a pile of rules. Compress to principles.
 - **One at a time.** If you apply several changes together you cannot tell which one helped.
+- **Doing nothing is a result.** Where the evidence does not justify a change, say so and stop (Phase 2). A harness edited on thin evidence is worse than one left alone. (adapted from references/cowagent/agent/evolution/prompts.py:31-33 (MIT))
 
 ## FinHub additions
 
 1. **Failure recurrence is an evolve signal.** When a run's QA report (`RESULT: FAIL`) or a judge verdict (`REJECTED > 0`) recurs for the same reason twice, treat that as an evolve signal even without user feedback.
-2. **Where the lesson is written.** Write the generalised lesson to the project's change history, AND, if the operator uses Super Memory, as a `remember` call with `kind:"learning"` tagged with the harness name. Never write client data into either.
+2. **Where the lesson is written.** Write the generalised lesson to the project's change history, AND, if the operator uses Super Memory, as a `remember` call with `kind:"learning"` tagged with the harness name. Never write client data into either. Each is one entry: one change-history row, and one `remember` call of one short bullet that names the file edited. Neither restates the run or stands in for the edit, and a no-op run writes neither. (adapted from references/cowagent/agent/evolution/prompts.py:92-93 (MIT))
