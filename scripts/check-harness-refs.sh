@@ -27,8 +27,8 @@ for d in $S/*/; do
   chk "skill frontmatter $n" grep -q "^name: $n\$" "$d/SKILL.md"
 done
 
-# 3. eleven miner submodules named in the orchestrator (the phase table uses {submodule})
-for m in autogpt openhands dify crewai deepseek_harness revfactory_harness openharness meta_harness openrig harness_100 hive; do
+# 3. twelve miner submodules named in the orchestrator (the phase table uses {submodule})
+for m in autogpt openhands dify crewai deepseek_harness revfactory_harness openharness meta_harness openrig harness_100 hive cowagent; do
   chk "miner $m in orchestrator" all "$m" $O
 done
 
@@ -53,7 +53,7 @@ chk "CLAUDE.md says six-agent" grep -q 'six-agent' CLAUDE.md
 # 8. no Hangul in agents or the triage skill (Korean phase markers in the orchestrator are the repo's convention)
 chk "no Hangul in agents+triage" bash -c "LC_ALL=C.UTF-8 grep -rP '[\x{AC00}-\x{D7A3}]' $A $S/capability-triage; test \$? -eq 1"
 
-# 9. reference pins: .gitmodules is the source of truth for the eleven-pin documents
+# 9. reference pins: .gitmodules is the source of truth for the twelve-pin documents
 GM=.gitmodules; L=references/LICENSES.md; LR=$S/reference-mining/references/licence-rules.md; SE=skills/finhub-harness/references/source-enrichment.md
 subs=$(git config -f $GM --get-regexp '^submodule\..*\.path$' | awk '{print $2}' | sed 's|^references/||')
 nsub=$(echo "$subs" | wc -l)

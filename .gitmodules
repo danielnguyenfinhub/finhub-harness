@@ -42,3 +42,7 @@
 	path = references/hive
 	url = https://github.com/aden-hive/hive
 	shallow = true
+[submodule "references/cowagent"]
+	path = references/cowagent
+	url = https://github.com/zhayujie/CowAgent
+	shallow = true
