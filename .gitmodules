@@ -38,3 +38,7 @@
 	path = references/harness_100
 	url = https://github.com/danielnguyenfinhub/harness-100
 	shallow = true
+[submodule "references/hive"]
+	path = references/hive
+	url = https://github.com/aden-hive/hive
+	shallow = true

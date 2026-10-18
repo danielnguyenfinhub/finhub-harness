@@ -216,6 +216,8 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - Orchestrator templates: `references/orchestrator-template.md`
 - State ledger, rebuild and resume across context resets: `references/state-ledger.md`
 - Run-once phases: a resume stops and asks about a half-done send, publish or record write (the ledger reads files only; an idempotency key accepted by the connector is the real fix): `references/state-ledger.md` section 3a
+- Bulk job with one phase repeated over N items: a per-row tracker so a re-run resumes at the item, not the phase (`scripts/unit_tracker.py`, rules U1-U8): `references/unit-tracker.md`
+- The same work over many items, pilot first, then fan out (rules P1-P6): `references/team-patterns.md` section 1-2a
 - Skill writing: `references/skill-writing-guide.md`
 - Skill testing: `references/skill-testing-guide.md`
 - QA agents: `references/qa-agent-guide.md`

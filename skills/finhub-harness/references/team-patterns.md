@@ -56,6 +56,29 @@ Independent tasks are processed at the same time, and the results are merged int
 
 **Execution mode v2 recommends:** Consider Workflow orchestration (Mode A) first. Define the list of perspectives as an array, send it through `pipeline()`, receive results that match the `schema`, and merge them in code. Use `parallel()` only when you must collect all results and then de-duplicate them. In that case, every parallel call finishes before the next stage begins. For research with two to four investigators who need to share what they find in real time, Persistent agent collaboration (Mode B) also fits.
 
+### 1-2a. Bulk fan-out over similar items: pilot first
+
+One phase does the same work for each of many items, and every item costs a worker run.
+
+**Fits when:** the items can be named by a stable key and one method should work for all of them.
+
+**Does not fit:** several perspectives on one input (use 1-2), or a handful of items that are cheaper to do directly.
+
+**Example:** re-check the published rate pages of 40 lenders. The orchestrator checks the first lender itself, writes down how, and the workers take the other 39.
+
+| Id | Rule |
+|----|------|
+| P1 | Before any fan-out, the orchestrator does the first item itself, start to finish, with the real tools, and writes `_workspace/pilot_{phase}.md`: the steps that worked, the edge cases and tool failures it met, and what counted as done. A worker is not sent to find out what one run by the orchestrator would show. |
+| P2 | Fan out only if the pilot item reached done. A pilot that fails, or leaves the method unclear, stops the phase: fix the method, then pilot again. |
+| P3 | Write what the pilot proved once, as a skill or `_workspace/method_{phase}.md`. Every worker task names it and carries only its own item. Shared context repeated in N tasks is paid for N times. |
+| P4 | The item list lives in a unit tracker (`references/unit-tracker.md`). The pilot item is marked done there, the fan-out takes the pending rows, and a re-run takes whatever is still pending. |
+| P5 | When the fan-out ends, ask the tracker what is still pending and report every such row. A row that never finished is not dropped. |
+| P6 | If the item list is not known until the work starts, use the supervisor pattern (1-5); the pilot still comes first. |
+
+**Does not cover:** how many workers run at once (the host decides), whether a done row is true (a verification gate, candidate H4 in `docs/hive-adoption-proposal.md`), and retry or backoff (candidate H3).
+
+(Pilot first, share the method once, and let the table say what is left, adapted from references/hive/core/framework/agents/queen/nodes/__init__.py:336-380 (Apache-2.0).)
+
 ### 1-3. Expert pool
 
 Only the specialist that fits the input and situation is called.
