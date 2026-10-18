@@ -2,9 +2,9 @@
 
 A new harness gets better when it borrows proven patterns instead of inventing them. Borrowing has two risks: copying something the licence forbids, and citing a pattern that is not actually in the source. This file is the procedure that avoids both. It restates the reference-mining skill (`.claude/skills/reference-mining/SKILL.md`) and its `references/licence-rules.md` and `references/port-map-schema.md`. If this file and `licence-rules.md` ever disagree, `licence-rules.md` wins, and `references/LICENSES.md` at the repo root wins over both.
 
-## 1. The ten pinned references
+## 1. The eleven pinned references
 
-Pinned as read-only submodules under `references/` (see `.gitmodules`; every upstream is a fork under `github.com/danielnguyenfinhub` except `meta_harness` and `openrig`, which pin the upstream repos). Tiers below are taken from `licence-rules.md`.
+Pinned as read-only submodules under `references/` (see `.gitmodules`; every upstream is a fork under `github.com/danielnguyenfinhub` except `meta_harness`, `openrig` and `hive`, which pin the upstream repos). Tiers below are taken from `licence-rules.md`.
 
 | submodule | upstream | licence | constraint (verbatim) | allowed `port as` |
 |---|---|---|---|---|
@@ -18,6 +18,7 @@ Pinned as read-only submodules under `references/` (see `.gitmodules`; every ups
 | `meta_harness` | SaehwanPark/meta-harness | Apache-2.0 (`LICENSE`) | Pinned 2026-10-05 at b6f5431 (v0.8.4). Port map: not yet mined. Attribution line required when adapting. | adapt / reference |
 | `openrig` | mvschwarz/openrig | Apache-2.0 (`LICENSE`, copyright holder named in the upstream `LICENSE`; no NOTICE file) | Pinned 2026-10-07 at 475ccab. Port maps: discipline, state; teams summarised in the shortlist. No design yet. Attribution line required when adapting. | adapt / reference |
 | `harness_100` | harness-100 (upstream unverified; pinned at danielnguyenfinhub/harness-100) | Apache-2.0 (`LICENSE`, copyright holder named in the upstream `LICENSE`; no NOTICE file) | Pinned 2026-10-17 at 8e8d35c. Port map: not yet mined. `ko/` is the authoritative source; parts of `en/` are a poor machine translation (sampled 2026-10-17 by the lead and boundary-qa: e.g. `en/28-security-audit/.claude/agents/audit-reviewer.md` and other teams 27-30 files are badly garbled, while files such as `en/01-youtube-production` read fluently), so cite and adapt from `ko/` and treat `en/` as a reading aid only. Attribution line required when adapting. | adapt / reference |
+| `hive` | aden-hive/hive | Apache-2.0 (`LICENSE`, "Copyright 2024 Aden"; no NOTICE file) | Pinned 2026-10-18 at 67502fa. Port map: not yet mined; proposal in `docs/hive-adoption-proposal.md`. Candidates H1 and H2 approved by Daniel 2026-10-18, H3 later. Attribution line required when adapting. | adapt / reference |
 
 ### The two hard cases
 
