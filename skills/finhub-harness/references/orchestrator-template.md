@@ -65,6 +65,8 @@ In `{custom or built-in}`, write the name of a custom type or a built-in type.
 Before starting the workflow, take a brief look at {file list / research axes / review targets} and organize them into an array.
 Pass the organized list to the script through `args`.
 
+If this phase repeats the same work over many items, do the pilot of `team-patterns.md` section 1-2a first: do the first item yourself, write the method once, and keep the items in a unit tracker (`unit-tracker.md`).
+
 ### Step 2: Run the workflow
 
 Pass the following script to the Workflow tool. For detailed examples, see `workflow-recipes.md` of the finhub-harness skill.
