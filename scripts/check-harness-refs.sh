@@ -27,8 +27,8 @@ for d in $S/*/; do
   chk "skill frontmatter $n" grep -q "^name: $n\$" "$d/SKILL.md"
 done
 
-# 3. twelve miner submodules named in the orchestrator (the phase table uses {submodule})
-for m in autogpt openhands dify crewai deepseek_harness revfactory_harness openharness meta_harness openrig harness_100 hive cowagent; do
+# 3. thirteen miner submodules named in the orchestrator (the phase table uses {submodule})
+for m in autogpt openhands dify crewai deepseek_harness revfactory_harness openharness meta_harness openrig harness_100 hive cowagent repository_harness; do
   chk "miner $m in orchestrator" all "$m" $O
 done
 
@@ -53,11 +53,11 @@ chk "CLAUDE.md says six-agent" grep -q 'six-agent' CLAUDE.md
 # 8. no Hangul in agents or the triage skill (Korean phase markers in the orchestrator are the repo's convention)
 chk "no Hangul in agents+triage" bash -c "LC_ALL=C.UTF-8 grep -rP '[\x{AC00}-\x{D7A3}]' $A $S/capability-triage; test \$? -eq 1"
 
-# 9. reference pins: .gitmodules is the source of truth for the twelve-pin documents
+# 9. reference pins: .gitmodules is the source of truth for the thirteen-pin documents
 GM=.gitmodules; L=references/LICENSES.md; LR=$S/reference-mining/references/licence-rules.md; SE=skills/finhub-harness/references/source-enrichment.md
 subs=$(git config -f $GM --get-regexp '^submodule\..*\.path$' | awk '{print $2}' | sed 's|^references/||')
 nsub=$(echo "$subs" | wc -l)
-numw=(zero one two three four five six seven eight nine ten eleven twelve)
+numw=(zero one two three four five six seven eight nine ten eleven twelve thirteen)
 row() { grep -E "^\| \`$2\` \|" "$1" | head -1; }   # row <file> <name>
 cell() { row "$1" "$2" | awk -F'|' -v n="$3" '{gsub(/^ +| +$/,"",$n); print $n}'; }   # cell <file> <name> <3 upstream|4 licence>
 pinstr() { row "$1" "$2" | grep -oE 'Pinned [0-9-]+ at [0-9a-f]{7,40}'; }
@@ -102,13 +102,13 @@ upstream_ok() { # urls outside the fork org are "upstream": the licence row name
 }
 count_ok() { # the file states $nsub (digit or word) before pinned/reference/port maps, and no other count (bare "one" exempt: "mines ONE pinned submodule"); history rows (| 20..) are exempt
   local f=$1 w=${numw[$nsub]} i bad="" body
-  for i in $(seq 2 12); do [ "$i" -ne "$nsub" ] && bad="$bad|${numw[$i]}|$i"; done
+  for i in $(seq 2 13); do [ "$i" -ne "$nsub" ] && bad="$bad|${numw[$i]}|$i"; done
   body=$(grep -v '^| 20' "$f")
   echo "$body" | grep -qiE "\b($w|$nsub) (pinned|reference|port maps?|maps)" &&
     ! echo "$body" | grep -iE "\b(${bad#|}) (pinned|reference|port maps?)"
 }
 loop_ok() { [ "$(sed -n '/^# 3\./,/^done/{s/^for m in \(.*\); do$/\1/p}' "$SELF" | tr ' ' '\n' | sort)" = "$(echo "$subs" | sort)" ]; }
-chk "submodule count 1..12" test "$nsub" -ge 1 -a "$nsub" -le 12
+chk "submodule count 1..13" test "$nsub" -ge 1 -a "$nsub" -le 13
 chk "miner loop covers .gitmodules" loop_ok
 for m in $subs; do
   chk "LICENSES row $m" test -n "$(row $L "$m")"

@@ -46,3 +46,7 @@
 	path = references/cowagent
 	url = https://github.com/zhayujie/CowAgent
 	shallow = true
+[submodule "references/repository_harness"]
+	path = references/repository_harness
+	url = https://github.com/hoangnb24/repository-harness
+	shallow = true
