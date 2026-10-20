@@ -18,8 +18,9 @@ Reference repos are pinned read-only submodules used for pattern mining. Port pa
 | `harness_100` | harness-100 (upstream unverified; pinned at danielnguyenfinhub/harness-100) | Apache-2.0 (`LICENSE`, "Copyright 2026 Robin"; no NOTICE file) | Pinned 2026-10-17 at 8e8d35c. Port map: not yet mined. `ko/` is the authoritative source; parts of `en/` are a poor machine translation (sampled 2026-10-17 by the lead and boundary-qa: e.g. `en/28-security-audit/.claude/agents/audit-reviewer.md` and other teams 27-30 files are badly garbled, while files such as `en/01-youtube-production` read fluently), so cite and adapt from `ko/` and treat `en/` as a reading aid only. Attribution line required when adapting. | adapt / reference |
 | `hive` | aden-hive/hive | Apache-2.0 (`LICENSE`, "Copyright 2024 Aden"; no NOTICE file) | Pinned 2026-10-18 at 67502fa. Port map: not yet mined; proposal in `docs/hive-adoption-proposal.md`. Candidates H1 and H2 approved by Daniel 2026-10-18, H3 later. Attribution line required when adapting. | adapt / reference |
 | `cowagent` | zhayujie/CowAgent | MIT (`LICENSE`, "Copyright (c) 2022 zhayujie"; no NOTICE file) | Pinned 2026-10-19 at 987a61c. Port map: not yet mined. Candidate CW2 (evolve-skill rules) approved by Daniel 2026-10-19; CW1 (permission modes) and CW3 (idle trigger) not started. Attribution line required when adapting. | adapt / reference |
+| `repository_harness` | hoangnb24/repository-harness | MIT (`LICENSE`, "Copyright (c) 2025 Hoang Nguyen"; no NOTICE file) | Pinned 2026-10-21 at 485fd40. Port map: not yet mined. Candidates noted at pin time (not approved for design): safe updater with three-way merge and a baseline-to-rerun evidence rule. Attribution line required when adapting. | adapt / reference |
 
-`meta_harness`, `openrig`, `hive` and `cowagent` pin the upstream repos; every other pin points at a fork under `github.com/danielnguyenfinhub`.
+`meta_harness`, `openrig`, `hive`, `cowagent` and `repository_harness` pin the upstream repos; every other pin points at a fork under `github.com/danielnguyenfinhub`.
 
 ## What each `port as` means in practice
 
