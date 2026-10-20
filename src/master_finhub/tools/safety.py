@@ -18,6 +18,7 @@ import posixpath
 import re
 import shlex
 from collections.abc import Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
@@ -426,8 +427,78 @@ def split_ops(tok: str) -> list[str]:
     return out
 
 
+_WORD_BREAK: Final = " \t\n" + PUNCT  # a `#` right after one of these starts a comment
+
+
+def _scan(command: str, newline: str) -> str:
+    """The text bash would run: backslash-newline deleted (NF1); a `#` that starts a word, outside
+    quotes, opens a comment that ends at the newline (a backslash does not extend it); a `#` inside
+    a word is an ordinary character. Each unquoted newline becomes `newline`. A word-start `#`
+    inside backticks, `${`, or a `$(` that sits inside double quotes (the quote count is then
+    unreliable), or right after `)` or a backtick, may or may not be a comment in bash, so it
+    raises ValueError (the caller fails closed). A plain `(` or `$(` is not ambiguous: its
+    comment also ends at the newline. `start` is false inside quotes, so a quoted `#` never opens
+    a comment."""
+    if "#" not in command and "\n" not in command:
+        return command  # nothing to strip, join or convert: the scan would give the same text
+    out: list[str] = []
+    quote, start, tick, prev, i = "", True, False, "", 0
+    stack: list[str] = []  # open `(`, `$(`, `${`; "" for a plain paren, else an ambiguous one
+    while i < len(command):
+        c = command[i]
+        if c == "\\" and command.startswith(("\n", "\r\n"), i + 1):
+            i += 2 if command[i + 1] == "\n" else 3
+            continue
+        if c == "\\" and quote != "'":
+            out.append(command[i : i + 2])
+            i, start, prev = i + 2, False, command[i + 1 : i + 2]
+            continue
+        if quote != "'":
+            if c == "`":
+                tick = not tick
+            elif c == ")":
+                if stack and stack[-1] != "}":
+                    stack.pop()
+            elif c == "}":
+                if stack and stack[-1] == "}":
+                    stack.pop()
+            elif c == "(" and (not quote or prev == "$"):
+                stack.append(")" if quote else "")
+            elif c == "{" and prev == "$":
+                stack.append("}")
+        if c == "#" and start:
+            if tick or any(stack) or prev in (")", "`"):
+                raise ValueError("a comment in a nested or ambiguous place")
+            end = command.find("\n", i)
+            i = len(command) if end < 0 else end
+            continue
+        if quote:
+            quote = "" if c == quote else quote
+            out.append(c)
+        elif c in "'\"":
+            quote = c
+            out.append(c)
+            start = False
+        elif c == "\n":
+            out.append(newline)
+            start = True
+        else:
+            out.append(c)
+            start = c in _WORD_BREAK
+        prev = c
+        i += 1
+    return "".join(out)
+
+
+# True while the guard re-runs HEAD's original comment and newline handling (see _check)
+_LEGACY: Final[ContextVar[bool]] = ContextVar("guard_legacy", default=False)
+
+
 def lex(command: str, posix: bool) -> list[str]:
-    lexer = shlex.shlex(command.replace("\n", ";"), posix=posix, punctuation_chars=PUNCT)
+    """Lex text that _lexable already prepared; it does not scan or strip anything itself."""
+    lexer = shlex.shlex(command, posix=posix, punctuation_chars=PUNCT)
+    if not _LEGACY.get():
+        lexer.commenters = ""  # _scan took the real comments out; shlex would cut at any `#`
     lexer.whitespace_split = True
     tokens = list(lexer)
     return tokens if posix else [t.strip("\"'") if t[:1] in "\"'" else t for t in tokens]
@@ -512,14 +583,31 @@ def _check_tokens(tokens: list[str], depth: int, sensitive: bool) -> str | None:
 
 
 def _normalise(command: str) -> str:
-    # Bash deletes backslash-newline outright, so `r\<nl>m` is `rm` (NF1).
-    return command.replace("\\\r\n", "").replace("\\\n", "")
+    # Bash deletes backslash-newline outright, so `r\<nl>m` is `rm` (NF1), and drops comments.
+    if _LEGACY.get():  # HEAD's text: comments stay, shlex cuts the line at the first `#`
+        return command.replace("\\\r\n", "").replace("\\\n", "")
+    return _scan(command, "\n")
+
+
+def _lexable(command: str) -> str:
+    """The text token_streams lexes: newlines are `;` outside quotes, in one pass from `command`."""
+    if _LEGACY.get():
+        return _normalise(command).replace("\n", ";")
+    return _scan(command, ";")
 
 
 def _check(command: str, depth: int = 0, sensitive: bool = True) -> str | None:
     if depth == 0:  # one Scan (memo + component budget) per top-level call
         with _sp.call_scope():
-            return _check_inner(command, depth, sensitive)
+            rule = _check_inner(command, depth, sensitive)
+            if rule is not None or ("#" not in command and "\n" not in command):
+                return rule  # with no `#` and no newline both paths read the same text
+            # Union with HEAD's own handling, so nothing HEAD denied can be allowed now.
+            token = _LEGACY.set(True)
+            try:
+                return _check_inner(command, depth, sensitive)
+            finally:
+                _LEGACY.reset(token)
     return _check_inner(command, depth, sensitive)
 
 
@@ -530,10 +618,13 @@ def _check_inner(command: str, depth: int, sensitive: bool) -> str | None:
         return "too-long"
     if CONTROL_RE.search(command):
         return "unparseable"  # NUL/control bytes: the shell would see something else (fail closed)
-    command = _normalise(command)
-    if fork_bomb(command):
+    try:
+        flat, text = _normalise(command), _lexable(command)
+    except ValueError:
+        return "unparseable"  # a `#` bash may read as a comment or as text: do not guess
+    if fork_bomb(flat):
         return "fork-bomb"
-    streams = token_streams(command)
+    streams = token_streams(text)
     if not streams:
         return "unparseable"
     for tokens in streams:
@@ -552,8 +643,21 @@ def check_rule(command: str, *, sensitive_paths: bool = True) -> str | None:
 
 
 def command_names(command: str) -> list[str]:
-    """Normalised command name of every segment; computed names keep their leading $ or backtick."""
-    streams = token_streams(_normalise(command))
+    """Normalised command name of every segment; computed names keep their leading $ or backtick.
+
+    Raises ValueError for a `#` that _scan cannot place; check_command reaches it only after
+    check_rule allowed the command, and wraps it in try/except (fail closed)."""
+    names = _names(command)
+    token = _LEGACY.set(True)  # plus the names HEAD's handling sees, so none can be missed
+    try:
+        names += [n for n in _names(command) if n not in names]
+    finally:
+        _LEGACY.reset(token)
+    return names
+
+
+def _names(command: str) -> list[str]:
+    streams = token_streams(_lexable(command))
     if not streams:
         return []
     names: list[str] = []
