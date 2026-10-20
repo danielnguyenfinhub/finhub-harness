@@ -19,8 +19,9 @@ Reference repos are pinned read-only submodules used for pattern mining. Port pa
 | `hive` | aden-hive/hive | Apache-2.0 (`LICENSE`, "Copyright 2024 Aden"; no NOTICE file) | Pinned 2026-10-18 at 67502fa. Port map: not yet mined; proposal in `docs/hive-adoption-proposal.md`. Candidates H1 and H2 approved by Daniel 2026-10-18, H3 later. Attribution line required when adapting. | adapt / reference |
 | `cowagent` | zhayujie/CowAgent | MIT (`LICENSE`, "Copyright (c) 2022 zhayujie"; no NOTICE file) | Pinned 2026-10-19 at 987a61c. Port map: not yet mined. Candidate CW2 (evolve-skill rules) approved by Daniel 2026-10-19; CW1 (permission modes) and CW3 (idle trigger) not started. Attribution line required when adapting. | adapt / reference |
 | `repository_harness` | hoangnb24/repository-harness | MIT (`LICENSE`, "Copyright (c) 2025 Hoang Nguyen"; no NOTICE file) | Pinned 2026-10-21 at 485fd40. Port map: not yet mined. Candidates noted at pin time (not approved for design): safe updater with three-way merge and a baseline-to-rerun evidence rule. Attribution line required when adapting. | adapt / reference |
+| `paperclip` | paperclipai/paperclip | MIT (`LICENSE`, "Copyright (c) 2025 Paperclip AI"; no NOTICE file) | Pinned 2026-10-21 at 2a5a323. Port map: not yet mined. Assessed before the pin as an idea source for atomic task checkout (not approved for design). Attribution line required when adapting. | adapt / reference |
 
-`meta_harness`, `openrig`, `hive`, `cowagent` and `repository_harness` pin the upstream repos; every other pin points at a fork under `github.com/danielnguyenfinhub`.
+`meta_harness`, `openrig`, `hive`, `cowagent`, `repository_harness` and `paperclip` pin the upstream repos; every other pin points at a fork under `github.com/danielnguyenfinhub`.
 
 ## What each `port as` means in practice
 
