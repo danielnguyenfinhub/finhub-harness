@@ -50,3 +50,7 @@
 	path = references/repository_harness
 	url = https://github.com/hoangnb24/repository-harness
 	shallow = true
+[submodule "references/paperclip"]
+	path = references/paperclip
+	url = https://github.com/paperclipai/paperclip
+	shallow = true
