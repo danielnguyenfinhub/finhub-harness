@@ -20,6 +20,7 @@ _workspace/
 ├── 02_adversarial-risk-judge_C3_r1.md              # one verdict file per round, never overwritten
 ├── 03_runtime-builder_C3.md
 ├── 03_boundary-qa_C3.md                            # first line: RESULT: PASS | RESULT: FAIL
+├── 03_boundary-qa_C3_r1.md                         # an earlier FAIL, moved here before the QA retry; never overwritten
 ├── 03_runtime-builder_slice1.md
 ├── 03_boundary-qa_slice1.md                        # first line: RESULT: PASS | RESULT: FAIL
 ├── 03_runtime-builder_slice2.md
@@ -31,7 +32,7 @@ _workspace/
 ## Rules
 
 - **Never delete a workspace.** New input on an existing workspace → `mv _workspace _workspace_{YYYYMMDD_HHMMSS}` (AEST), e.g. `_workspace_20261001_193000/`.
-- **Overwrite in place on re-run** of the same agent; the previous version is recoverable from the archived workspace only if a new-input move happened, so agents must read the prior file before overwriting it.
+- **Overwrite in place on re-run** of the same agent, except a QA report: before a QA retry the orchestrator moves it to its `_r<k>` name (`skills/finhub-harness/references/quality-gates.md` §3-6). Otherwise the previous version is recoverable from the archived workspace only if a new-input move happened, so agents must read the prior file before overwriting it.
 - **No client data** anywhere under `_workspace/` — synthetic examples only. No secrets, no Mercury records.
 - `_workspace*/` should be git-ignored (scratch, not product). If `.gitignore` lacks it, note that in the Phase 4 report rather than editing it silently.
 - Code output is not in `_workspace/`: it goes to `src/master_finhub/**` and `tests/**`.
@@ -46,4 +47,5 @@ _workspace/
 | `03_boundary-qa_slice{N}.md` starts `RESULT: PASS` | slice N done |
 | `02_adversarial-risk-judge_<item>_r<k>.md` first line shows `REJECTED 0` | item design approved; build may start |
 | `03_boundary-qa_<item>.md` starts `RESULT: PASS` | item done; commit, push, draft PR, back to the backlog |
+| `03_boundary-qa_<item>_r<k>.md` exists and `03_boundary-qa_<item>.md` does not | a QA retry was due and has not written its report; on resume run QA for the unit with every kept `_r<n>` report of the unit on its `Earlier:` line |
 | `04_boundary-qa_report.md` exists and is newer than every `03_*` | run complete |

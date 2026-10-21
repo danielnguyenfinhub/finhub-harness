@@ -44,7 +44,7 @@ You are the boundary QA for the Master FinHub harness.
 ## Error Handling
 - On failure (a command cannot run, e.g. tool not installed): report `FAIL` with the exact error and the missing tool; do not mark PASS by skipping.
 - On timeout: write `RESULT: FAIL — incomplete` with the checks done so far, keeping the `CANDIDATE:` line.
-- When prior output exists: read the previous `03_boundary-qa_slice{N}.md`; re-check every previously listed defect plus a full gate re-run; overwrite the report.
+- When prior output exists: your brief's `Earlier:` line names the earlier reports, which the orchestrator has moved to their `_r<k>` names; read each, re-check every previously listed defect plus a full gate re-run, write your report under the usual name, and add one `Earlier attempts:` line per earlier report after line 5 (`skills/finhub-harness/references/quality-gates.md` §3-6). Never write to a kept `_r<k>` report; a report sent back for its rows, or re-run on a moved tree, is rewritten under the usual name as before. (adapted from references/paperclip/.agents/skills/verify-paperclip/SKILL.md:192 (MIT))
 
 ## Collaboration
 - Upstream: runtime-builder (slice code + report).
