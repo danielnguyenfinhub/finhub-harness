@@ -79,6 +79,7 @@ File writing and connectors depend on the account's tool settings. Observed 2026
 3. **Adversarial verification is a separate labelled pass.** The judge or QA role runs as its own section with a fresh-eyes instruction: "Re-read only the artefact above, not the reasoning that produced it. Assume it is wrong and try to show where." A same-context pass is weaker than a separate agent; the report must say so.
 4. **Parallel fan-out becomes sequential.** Items are processed one after another. The orchestrator states an item cap (for example, "at most 6 items per run; list the rest as not processed") so one context is not overrun.
 5. **Say what was lost.** The final report notes which isolation or parallelism guarantees were not available.
+6. **Ask before an outside effect.** A phase that sends, writes a record, publishes or pays shows its exact calls as a labelled `APPROVAL NEEDED` block and ends the turn; the user's next reply is the answer, and anything but a yes sends nothing. A scheduled or unattended run sends nothing and leaves the block for the user (Ask-first block, `orchestrator-template.md`; adapted from references/openrig/docs/reference/getting-started.md:663-667 (Apache-2.0)).
 
 ## 3. Claude Cowork
 
@@ -102,7 +103,7 @@ Skills and connectors are the reliable surface. Multi-agent orchestration (sub-a
 
 ### Orchestrator rule
 
-Treat Cowork like chat until a surface check says otherwise: write a `## Single-context fallback` section, apply the degradation rule from section 2, and use connectors for external data. Any step that writes to a connector (send, update, delete) needs an explicit confirmation point in the workflow, since a single context has no separate approver.
+Treat Cowork like chat until a surface check says otherwise: write a `## Single-context fallback` section, apply the degradation rule from section 2, and use connectors for external data. Any step that writes to a connector (send, update, delete) waits for the user's explicit yes to its exact calls (rule 6 of section 2), since a single context has no separate approver.
 
 ## 3a. Choosing a mode per surface
 
@@ -172,3 +173,4 @@ Legend: ✓ available, degraded (works with reduced guarantees), ✗ not availab
 | 6 | Packaging matches surface | Code: plugin dir. Cowork: `<name>.plugin` zip. Chat: skill-folder zip with `SKILL.md` at its root |
 | 7 | Connector preflight | Every agent's `## Required connectors` line has a row in the orchestrator's Step 0 preflight table; the Code branch stops before any spawn; the chat/Cowork branch warns and asks and never stops on its own |
 | 8 | Delegation contract | The Delegation block (`orchestrator-template.md`) is in every section that spawns or messages a worker, and in no Single-context fallback. Code only: chat exposes no sub-agent tool (section 2), Cowork is unverified |
+| 9 | Ask before an outside effect | The Ask-first block (`orchestrator-template.md`) precedes the first phase that sends, writes a record, publishes or pays, in the Code sections and in the fallback |

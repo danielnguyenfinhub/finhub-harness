@@ -75,6 +75,8 @@ One phase does the same work for each of many items, and every item costs a work
 | P5 | When the fan-out ends, ask the tracker what is still pending and report every such row. A row that never finished is not dropped. |
 | P6 | If the item list is not known until the work starts, use the supervisor pattern (1-5); the pilot still comes first. |
 
+A bulk phase that sends or writes outside the harness also follows the Ask-first block of `orchestrator-template.md`: the whole batch is listed and approved once, before the pilot, and the pilot is the first listed call. A pilot call that fails is not sent again without a new list and a new yes (block rules 6 and 7).
+
 **Does not cover:** how many workers run at once (the host decides), whether a done row is true (a verification gate, candidate H4 in `docs/hive-adoption-proposal.md`), and retry or backoff (candidate H3).
 
 (Pilot first, share the method once, and let the table say what is left, adapted from references/hive/core/framework/agents/queen/nodes/__init__.py:336-380 (Apache-2.0).)
