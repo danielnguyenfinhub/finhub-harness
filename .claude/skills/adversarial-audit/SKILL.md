@@ -9,11 +9,12 @@ Decide, claim by claim, whether the architect's evidence actually says what the 
 
 ## Steps
 
-1. **Open only `_workspace/02_strategy-architect_slices.md`.** Jump to `## Authority List`. Read slice text only where a claim needs its context. The fixed guardrail and cost statement rows of step 3 also need the slice's Design, Test-plan and Cost statement text; read it for them. Ignore rationale prose and any chat messages arguing a position.
+1. **Open only `_workspace/02_strategy-architect_slices.md`.** Jump to `## Authority List`. Read slice text only where a claim needs its context. The fixed guardrail and cost statement rows of step 3 also need the slice's Design, Test-plan and Cost statement text; read it for them. Ignore rationale prose and any chat messages arguing a position. Then run `python3 skills/finhub-harness/scripts/cite_check.py <design file>` from the project root and copy its `SUMMARY:` line into the verdict body (`skills/finhub-harness/references/quality-gates.md` section 1-4).
 2. **For each row:**
    - If `evidence` is outside `references/` → REJECTED (`out-of-bounds citation`).
    - If it points into `references/autogpt/autogpt_platform/` → REJECTED (`licence: Polyform Shield`).
    - If `NET-NEW` → check a reason is stated; UPHELD unless a port map shows a reference that contradicts it.
+   - If `cite_check.py` printed a `BAD` line for the row's cite → REJECTED with the printed reason (`cause: judgment-gap`); a cite it passed is still opened below, since in range is not support; a judge who opens the cited line and finds the script wrong rules UNVERIFIED and quotes the script's line instead.
    - Otherwise open the file at the cited line, read ±5 lines, and rule per `references/verdict-schema.md`.
 3. **Fill the guardrail table** from `references/quant-guardrails.md` for every slice that touches evals, verifiers, backtests, pricing or data splits. Mark other slices `N/A` with a reason. Then fill the single `cost statement` row (`skills/finhub-harness/references/quality-gates.md` section 3-11): read the design's Design and Test-plan text for new refusals, prompts and required steps, and rule UPHELD, REJECTED or N/A against the architect's `Cost statement` (adapted from references/openrig/CONTRIBUTING.md:29-31 (Apache-2.0)).
 4. **Write the verdict** with totals and round number: to `_workspace/02_adversarial-risk-judge_verdict.md` for runtime slices, or to `_workspace/02_adversarial-risk-judge_<item-id>_r<k>.md` (one file per round, never overwritten) for one adoption. The launch prompt names which.
