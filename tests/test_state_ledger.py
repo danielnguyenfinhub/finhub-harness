@@ -957,7 +957,8 @@ def script_links(doc: str, skill: str) -> None:
     """The lint does not check scripts/ mentions, so every one must name a real file."""
     skill_dir = REPO / "skills/finhub-harness"
     for text in (doc, skill):
-        refs = re.findall(r"scripts/([\w.-]+\.(?:py|sh))", text)
+        own = re.sub(r"(?<![\w./-])references/[\w.-]+/\S+", "", text)  # a pinned repo's file
+        refs = re.findall(r"scripts/([\w.-]+\.(?:py|sh))", own)
         assert "state_ledger.py" in refs or text is skill
         for name in refs:
             assert (skill_dir / "scripts" / name).is_file() or (

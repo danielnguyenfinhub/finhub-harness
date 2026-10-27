@@ -4,11 +4,17 @@ references/deepseek_harness/packages/skill/skill/src/index.ts:20 (MIT);
 link, bundled-file and duplicate-name rules adapted from references/meta_harness/scripts/validate_skills.py:72
 and references/meta_harness/scripts/audit_harness.py:117 (Apache-2.0);
 provenance rules (verified-*) adapted from references/openrig/packages/daemon/src/domain/skill-audit.ts:98-136
-and references/openrig/packages/cli/src/lib/scope/trust.ts:33-48 (Apache-2.0)."""
+and references/openrig/packages/cli/src/lib/scope/trust.ts:33-48 (Apache-2.0);
+pointer rules (pointer-marker, pointer-budget) adapted from
+references/repository_harness/scripts/install-harness.sh:330-344 and
+references/repository_harness/tests/installer/assert-agent-authority-contract.sh:35
+(MIT, Hoang Nguyen)."""
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 import sys
 from collections.abc import Iterator
 from datetime import date, datetime
@@ -51,6 +57,9 @@ NONLOCAL_RE = re.compile(
 BUNDLED_RE = re.compile(
     r"(?<![\w./-])references/([A-Za-z0-9_][A-Za-z0-9_.-]*\.[A-Za-z0-9]+)(?![\w/-])"
 )
+
+POINTER_RE = re.compile(rb"<!-- finhub-harness:(begin|end) ([a-z0-9]+(?:-[a-z0-9]+)*) -->")
+POINTER_BUDGET = 1600  # bytes of the block, both marker lines included
 
 out: list[str] = []
 
@@ -243,6 +252,50 @@ def check_provenance(path: Path, data: dict[str, str], today: date) -> None:
         report("WARN", path, "verified-stale", msg)
 
 
+def check_pointer(path: Path) -> None:
+    """The finhub-harness block of CLAUDE.md: per orchestrator name one begin marker line above one
+    end marker line, no other block's marker between them (ERROR), at most POINTER_BUDGET bytes (WARN).
+    A marker is a whole line (trailing blanks allowed); silent when the file is absent or has none.
+    The bytes outside every block (the change history among them) are never read for the budget."""
+    try:  # stat and read in one try: is_file() raises on 3.11-3.13 and hides errors on 3.14
+        if not stat.S_ISREG(path.stat().st_mode):
+            return  # a directory, a FIFO or a device is not a CLAUDE.md to check (no read: no hang)
+        lines = path.read_bytes().split(b"\n")
+    except (FileNotFoundError, NotADirectoryError):
+        return  # no file, as on base (a broken link included)
+    except OSError as err:  # base never read it, so an unreadable file must not end the lint
+        why = err.strerror or type(err).__name__
+        report("WARN", path, "pointer-unread", f"not checked: {why}; fix: make it readable")
+        return
+    marks: list[tuple[int, str, str]] = []
+    for n, line in enumerate(lines, 1):
+        if n == 1:
+            line = line.removeprefix(b"\xef\xbb\xbf")  # a UTF-8 byte-order mark is not text
+        if m := POINTER_RE.fullmatch(line.rstrip()):
+            marks.append((n, m[1].decode(), m[2].decode()))
+    fix = "; fix: keep one begin line above one end line per harness and move stray markers out"
+    for name in sorted({name for _, _, name in marks}):
+        b = [n for n, kind, other in marks if other == name and kind == "begin"]
+        e = [n for n, kind, other in marks if other == name and kind == "end"]
+        if len(b) != 1 or len(e) != 1:
+            msg = f"{name!r}: {len(b)} begin and {len(e)} end marker line(s), need one of each{fix}"
+            report("ERROR", path, "pointer-marker", msg)
+            continue
+        if e[0] < b[0]:
+            msg = f"{name!r}: end marker at line {e[0]} is above begin marker at line {b[0]}{fix}"
+            report("ERROR", path, "pointer-marker", msg)
+            continue
+        inside = [(n, other) for n, _, other in marks if b[0] < n < e[0]]
+        for n, other in inside:
+            msg = f"{name!r}: line {n} holds a marker of {other!r} inside this block{fix}"
+            report("ERROR", path, "pointer-marker", msg)
+        size = len(b"\n".join(lines[b[0] - 1 : e[0]])) + (e[0] < len(lines))
+        if not inside and size > POINTER_BUDGET:
+            msg = f"{name!r}: block is {size} bytes, over {POINTER_BUDGET}"
+            msg += "; fix: keep Goal and Trigger short and leave the change history below the block"
+            report("WARN", path, "pointer-budget", msg)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2 or not Path(argv[1]).is_dir():
         print("usage: lint_harness.py DIR  (DIR holds agents/ and/or skills/, e.g. .claude)")
@@ -310,6 +363,8 @@ def main(argv: list[str]) -> int:
         report("ERROR", root, "preflight", f"agent {agent!r} needs {server!r}: no preflight row")
     for agent, server in sorted(table - declared):
         report("ERROR", root, "preflight", f"row {agent} | {server} has no agent connector line")
+    beside = Path(os.path.abspath(root))  # DIR's own links kept; a relative DIR joins getcwd()
+    check_pointer((beside.parent if beside.name == ".claude" else beside) / "CLAUDE.md")
     errors = sum(line.startswith("ERROR") for line in out)
     print("\n".join(out + [f"lint_harness: {errors} error(s), {len(out) - errors} warning(s)"]))
     return 1 if errors else 0
