@@ -1,11 +1,25 @@
 # finhub-harness
 
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![CI](https://github.com/danielnguyenfinhub/finhub-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/danielnguyenfinhub/finhub-harness/actions)
+
 A Claude plugin that builds agent teams, plus the Python runtime and build team that grew alongside it. One repo, two capabilities.
 
 | | Capability | What you get | Status |
 | --- | --- | --- | --- |
 | 1 (primary) | **Harness factory** — `finhub-harness` and `finhub-harness-evolve` skills | Describe a domain; get a team of specialist agents, the skills each one follows, and an orchestrator written for the Claude surface you use | Built, cold-tested once on Claude Code. Chat and Cowork behaviour is **unverified** (see Gaps) |
-| 2 (secondary) | **Master FinHub runtime** — `src/master_finhub/` plus a six-agent build team in `.claude/` | A stdlib-only Python agent runtime (slices 1-11) and the team that built and QA'd it | Built; 1334 tests pass, 10 skipped |
+| 2 (secondary) | **Master FinHub runtime** — `src/master_finhub/` plus a six-agent build team in `.claude/` | A stdlib-only Python agent runtime (slices 1-11) and the team that built and QA'd it | Built; 4252 tests pass, 10 skipped (CI on PR #66, 2026-10-22) |
+
+## Contents
+
+- [1. The harness factory](#1-the-harness-factory)
+- [2. The Master FinHub runtime](#2-the-master-finhub-runtime)
+- [Reference repos and licences](#reference-repos-and-licences)
+- [Gaps](#gaps-stated-plainly)
+- [Quick start](#quick-start)
+- [Contributing](#contributing)
+- [Licence](#licence)
 
 ## 1. The harness factory
 
@@ -71,6 +85,14 @@ Notes: `openhands` is a UI-only fork with no agent runtime. The `openharness` up
 - **Docker sandbox:** its real-container test is skipped where no docker daemon exists, and was skipped in the build environment.
 - **Plugin install flow:** the commands above follow the plugin layout but were not run against a live Claude Code install.
 - **Migrated build orchestrator:** its Phase 2 was converted to the v2 tools and has not been re-run end to end.
+
+## Quick start
+
+See [docs/QUICKSTART.md](docs/QUICKSTART.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
 
 ## Licence
 
