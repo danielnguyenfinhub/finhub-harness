@@ -1,0 +1,10 @@
+services:
+  sandbox:
+    image: python:3.12-slim
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    command: sleep infinity
+    # Optional: expose a port if you later add a loopback SSE server
+    # ports:
+    #   - "8080:8080"

@@ -6,12 +6,30 @@ build-backend = "hatchling.build"
 name = "master-finhub"
 version = "0.1.0"
 description = "Master FinHub harness: agent runtime, sandbox, orchestration and evals."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Daniel Nguyen" }]
+keywords = ["agent", "harness", "claude", "runtime", "orchestration"]
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = []
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=1.11,<2"]
 dev = ["ruff", "black", "pytest", "mypy", "anthropic>=1.11,<2"]
+
+[project.urls]
+Homepage = "https://github.com/danielnguyenfinhub/finhub-harness"
+Repository = "https://github.com/danielnguyenfinhub/finhub-harness"
+Issues = "https://github.com/danielnguyenfinhub/finhub-harness/issues"
 
 [project.scripts]
 master-finhub = "master_finhub.cli:main"

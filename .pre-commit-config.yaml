@@ -1,0 +1,20 @@
+# Local hooks run the dev-environment tools, so they match what CI installs
+# (pip install -e '.[dev]') instead of a separately pinned hook version.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check
+        entry: ruff check src tests
+        language: system
+        pass_filenames: false
+      - id: black
+        name: black --check
+        entry: black --check src tests
+        language: system
+        pass_filenames: false
+      - id: mypy
+        name: mypy --strict
+        entry: mypy --strict src
+        language: system
+        pass_filenames: false
