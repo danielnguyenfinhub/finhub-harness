@@ -36,13 +36,27 @@ Full per-phase inputs/outputs: `references/phase-table.md`. Workspace file namin
 Models are tiered (sonnet for ingestion/build/QA, opus for design/judgement) per Daniel's global CLAUDE.md §8 — recorded in the repo CLAUDE.md 변경 이력.
 
 ## Rigor
-Judge and QA are mandatory in this team because the owner assigned them. The unit kind below is class `other`, and `gated` is an owner assignment (current practice), not a default. No agent selects, raises or lowers a level or a class; an agent that thinks a unit needs another level says so in one sentence to Daniel and continues. A unit runs light only through a `rigor:master-finhub-unit/<item>` row in `WAIVERS.md`, and the table is lowered only through a `rigor:master-finhub-unit/table` row, both from Daniel's own quoted words and approval, and both committed by a gated unit of their own that declares `WAIVERS.md` only (quality-gates 3-10). A unit is `master-finhub-unit/<unit>` (`master-finhub-unit/OR-S8`).
+The unit kind below is class `other` and its table row is `light` (lowered from `gated` on 2026-10-28, on Daniel's words 'Quick unless I say full (Recommended)', after he said the team was too heavy and too slow for small tasks). A unit is `master-finhub-unit/<unit>` (`master-finhub-unit/OR-S8`). Two lanes run under that row. **Quick** is the default: no architect, judge or QA agent; the lead builds and checks with the repo's own gates (see Lanes). **Full** is an item Daniel raises by saying full ('C28 full'): the judge and QA run as described below and the item is `gated` for that run. The table cannot express a raise, so the judge verdict and QA report of a Full item carry `RIGOR: gated unit=master-finhub-unit/<item> by=owner:daniel on=<the date Daniel said full>` and the lead checks that line itself. No agent selects, raises or lowers a level or a class; an agent that thinks a unit needs the other lane says so in one sentence naming the risk to Daniel and continues in the lane he assigned. A Quick item needs no ledger row. A unit runs below its table row only through a `rigor:<scope>/<item>` row in `WAIVERS.md`, and a table row is lowered only through a `rigor:<scope>/table` row, both from Daniel's own quoted words and approval, and both committed by a gated unit of their own that declares `WAIVERS.md` only (quality-gates 3-10). A new scope cannot be lowered this way, because the receipt must name a scope that the table already lists; add no scope without asking Daniel.
 
 | scope | class | level | assigned-by | on |
 |---|---|---|---|---|
-| master-finhub-unit | other | gated | owner:daniel | 2026-10-14 |
+| master-finhub-unit | other | light | owner:daniel | 2026-10-28 |
 
 (adapted from references/openrig/docs/reference/sdlc-conventions.md:20-24 (Apache-2.0))
+
+## Lanes
+**Quick (default).** When a pick or a task arrives, say the lane in one line ("C33: quick lane"), then:
+1. Plan in at most ten lines in `_workspace/quick_<item>.md`: what changes, the files, the proof command, and each source cite with its licence tier. No Authority List, no design file.
+2. Build it yourself, test first. One builder agent is allowed for a large mechanical edit. No architect, judge or QA agent.
+3. When the change is done, run the repo's own gates once: the new and touched tests, then the full suite once; ruff, black and mypy as CI runs them; `lint_harness.py`; `check-harness-refs.sh`; the packager when a shipped file changed; `cite_check.py` over any cite you wrote; the attribution line, the 8-word scan and the Hangul check on new prose. For each new refusal or rule, break it by hand in a scratch copy and show a test fails (`mutant_gate.py classify` when you pre-registered the test and sig; a plain failing run is enough otherwise).
+4. Before the commit run `waiver_ledger.py check WAIVERS.md` and `rigor_check.py check` for the unit `master-finhub-unit/<item>` with no report arguments (Phase 3 shows the call). Relay every NOTICE and EXPIRED line to Daniel.
+5. Commit, push, open a draft PR, subscribe. The PR body is one page: what changed, the lane ("Quick lane: no judge, no QA agent"), the checks you ran and their results, and what was not verified.
+In Quick you write one sentence naming the risk to Daniel, and continue, when the unit would change the command guard or the credential-path denylist (`src/master_finhub/tools/safety.py`, `src/master_finhub/tools/sensitive_paths.py`), send, publish or pay, or carry client-facing text. A change to `WAIVERS.md` or to the Rigor table is always a unit of its own, run `gated`. If a Quick plan grows past ten lines or eight files, say so in one sentence and offer Full.
+
+**Full (only when Daniel says full).** Phases 1 to 4 below, with the judge and QA gated. The same process, with these cuts that keep every gate:
+- The architect's brief asks for about 25 Authority List rows at most and about 15 pre-registered mutants at most, and for no live paid session unless Daniel asks for one.
+- From judge round 2 the brief says: audit the rows that changed, the new rows and the fixed rows; carry the rows whose text is unchanged by id under rule C4 (quality-gates 3-7), and re-open one of them only when the change could have broken it.
+- A revision batches every point of a verdict into one `SendMessage`, and the architect runs the cite check and the full matrix once, after the last fix.
 
 ## 워크플로우
 
@@ -55,7 +69,7 @@ First name the goal: **runtime build** (slice numbers, "build the runtime", "con
 2. **`_workspace/` present + partial request** ("re-run only the judge", "rebuild slice 3", "improve the previous build", "re-run QA") → re-run only the affected agent. Pass it the prior output paths from `references/phase-table.md` and the instruction "prior output exists: read it and improve only the flagged part". Then run only the phases downstream of that agent that the change invalidates (judge re-run → builder slices whose claims changed → QA).
 3. **`_workspace/` present + new input** (new spec, "after I changed the spec", a different goal) → move `_workspace/` to `_workspace_{YYYYMMDD_HHMMSS}/` (AEST timestamp), then start an initial run. Never delete old workspaces.
 
-State which path you chose and why in one line before continuing.
+State which path you chose and why in one line before continuing, and name the lane (see Lanes): Quick unless Daniel's request says full.
 
 ### Phase 1: Reference mining
 **실행 모드:** 서브 에이전트
@@ -96,6 +110,7 @@ Agent(
 When the backlog exists, **stop**. Relay to Daniel the ranked table (id, capability, target, licence, total, effort) and the top three in two lines each, then wait for his pick. Scores rank; Daniel decides. If his standing instruction for this run is "you decide", take the top row and say so. Never start Phase 2 for an item he has not named or delegated. On "re-rank" or after re-mining, re-run the scout with "prior output exists" and keep ids stable.
 
 Pick rules, applied before Phase 2 starts:
+- **Lane.** Quick unless Daniel says full. A Quick pick skips Phase 2 and Phase 3 and follows the Quick steps of Lanes; the rules below about the licence tier and pattern-only rows still apply to it.
 - **"build Cn" with no `01b_capability-scout_backlog.md`** → run Phase 1 (reusing maps whose SHA and scope match) and Phase 1b first, then show the backlog and ask Daniel to confirm `Cn` is still his pick; never design from an id that has no row.
 - **`Cn` is not in the backlog or Deferred tables** → say so, list the ids that exist, stop.
 - **`Cn` is only in the Deferred table** (id, capability and total, no target, licence tier or proof) → re-run capability-scout with "prior output exists" and the instruction to promote `Cn` into a full Backlog row (displacing the lowest row if the table is full), show Daniel the promoted row, and continue only after he confirms it; the licence and dify rules below then apply to that row.
@@ -103,6 +118,7 @@ Pick rules, applied before Phase 2 starts:
 - **The picked row is pattern-only (dify)** → proceed, and the architect's prompt says every claim is `pattern`: fresh text, no mirrored names.
 
 ### Phase 2: Strategy + risk debate
+(Full lane only.)
 **실행 모드:** 지속형 에이전트 협업 (v2: persistent named agents; no team object)
 
 There is no team-create/team-delete tool in v2. Named agents launched in this session form the collaboration group automatically, and `SendMessage` resumes an agent with its context intact. The judge must audit in a **fresh context**, so it is launched anew for each round rather than resumed.
@@ -111,10 +127,11 @@ There is no team-create/team-delete tool in v2. Named agents launched in this se
 2. `Agent(subagent_type: "adversarial-risk-judge", model: "opus")` with **no name** and a prompt that names the design file and limits it to that file plus the cited `references/` lines and read-only simulation outside the repo — write the verdict (`02_adversarial-risk-judge_verdict.md`, or `..._<item>_r<k>.md` per round), totals line first, then its `CANDIDATE:` and `CARRIED:` lines (`skills/finhub-harness/references/quality-gates.md` §3-7). The judge computes the line with `candidate_id.py id --paths <design file> [<patch file>]`; when the design carries a patch, both files go on it.
 3. If the totals show `REJECTED > 0`: `SendMessage({to: "strategy-architect"})` with the rejected claim ids and the judge's exact fixes, telling it to re-verify each by simulation and dispute with evidence if it disagrees; the architect revises in place. Then launch a **new** judge (fresh context, prior verdict paths passed as "prior output exists") for the next round. Max 3 rounds; if round 3 still has REJECTED > 0, stop and escalate to Daniel with the rejected claims side by side and both positions. Daniel may authorise further rounds one at a time; put `Extra round authorised by Daniel: <date>` in that round's launch prompt so the judge copies it into the verdict header.
 4. Confirm both 02 files are saved in `_workspace/`, and run `python3 skills/finhub-harness/scripts/candidate_id.py check {verdict}` on the clean verdict. Exit 0 lets Phase 3 start; exit 3 means the design changed after the verdict, so launch a new judge. (adapted from references/openrig/scripts/gate-lane-consume.mjs:23-25 (Apache-2.0))
-5. Put the unit's row as a `Rigor:` line, `Rigor: gated unit=master-finhub-unit/{unit} by=owner:daniel on=2026-10-14`, in the judge's launch prompt and in every builder and QA brief. The judge's lines run TOTALS, CANDIDATE, CARRIED, RIGOR; the QA report's lines run RESULT, CANDIDATE, CARRIED, BASE, RIGOR. A verdict written before this rule existed carries no RIGOR line and is not passed to the check below.
+5. Put the unit's row as a `Rigor:` line, `Rigor: gated unit=master-finhub-unit/{unit} by=owner:daniel on=<the date Daniel said full>`, in the judge's launch prompt and in every builder and QA brief. The judge's lines run TOTALS, CANDIDATE, CARRIED, RIGOR; the QA report's lines run RESULT, CANDIDATE, CARRIED, BASE, RIGOR. A verdict written before this rule existed carries no RIGOR line and is not passed to the check below.
 6. Nothing to tear down. The architect stays addressable for later "redesign slice N" requests; sub-agent calls for Phase 3 follow directly.
 
 ### Phase 3: Build
+(Full lane only. A Quick unit commits through the Quick steps of Lanes.)
 **실행 모드:** 서브 에이전트
 
 For each slice N in Part B order, or for the one picked backlog item. Set the placeholders first and use them in both prompts:
@@ -156,6 +173,8 @@ Run builder and QA sequentially (QA depends on builder). Before you spawn the fi
 `check` exit 3 on a PASS means the tree moved after QA looked at it: do not commit, run QA on the tree as it is now. Run `python3 skills/finhub-harness/scripts/finding_tags.py check _workspace/03_boundary-qa_{unit}.md` after `candidate_id.py check`: exit 4 sends the report back once to boundary-qa with the lines it printed; that is a refusal of the record, not a stale verdict (quality-gates 3-8). A refusal of a drift row is a refusal like any other: it goes back once with the lines the checker printed. After the commit, `check --tree-only` passing with an empty `git status --short` shows the commit holds the tree QA judged; the plain `check` is then stale, so a PASS licenses one commit.
 
 Before the commit, in the same step, run `python3 skills/finhub-harness/scripts/waiver_ledger.py check WAIVERS.md` on the tree as it is at that moment: any non-zero exit (4: a row refused or expired; 2: the file missing or unreadable) means do not commit, and `WAIVERS.md` is never edited to make it pass. You are the one who relays: show Daniel every `NOTICE`, `EXPIRED` and problem line in your report before any commit, and ask him to renew or drop each row with new words. A renewal or closure is a unit of its own: it declares `WAIVERS.md` and nothing else, moves the candidate id and forces a QA re-run, an accepted cost. When a unit adds or changes a row, put the owner's words (or the path of the record that holds them) in the builder and QA briefs, and put the full text of the `CLAUDE.md` row in the builder's brief, so that nothing is filled in after QA moves the id (quality-gates 3-9; adapted from references/openrig/scripts/gate-lane-ledger.mjs:60-85 (Apache-2.0)).
+
+For a Quick unit run the `rigor_check.py` call below with no report arguments and put its `EFFECTIVE:` line in the PR body. For a Full unit skip it, because the table row is `light` and the script cannot ask for the reports of a raised item; check instead that the QA report's fifth line is `RIGOR: gated unit=master-finhub-unit/{unit} by=owner:daniel on=<the date Daniel said full>`, and keep every other check in this phase.
 
 In the same step, after `candidate_id.py check` and `finding_tags.py check`, write the previous committed copy of the table, `git show HEAD:.claude/skills/master-finhub-orchestrator/SKILL.md > _workspace/prev_rigor_{unit}.md` (`-` only for a file with no earlier commit), and the changed paths, `{ git diff --name-only HEAD -- . ':(exclude)_workspace'; git ls-files --others --exclude-standard -- . ':(exclude)_workspace'; } > _workspace/changed_{unit}.txt`. Then run `python3 skills/finhub-harness/scripts/rigor_check.py check .claude/skills/master-finhub-orchestrator/SKILL.md WAIVERS.md master-finhub-unit/{unit} _workspace/prev_rigor_{unit}.md _workspace/changed_{unit}.txt _workspace/03_boundary-qa_{unit}.md` and add the judge verdict of the unit when it carries a RIGOR line: any non-zero exit means do not commit. Relay every `DOWNGRADE:`, `LOWERED:` and `NOTICE:` line to Daniel in your report before the commit. You never write a `rigor:` row or edit the table to make the check pass; both come only from Daniel's words and approval, and a downgrade row is committed by a gated unit of its own. The final report's second line is `RIGOR: no unit ran light` or one line per light item or lowered row (quality-gates 3-10; adapted from references/openrig/docs/reference/product-journey-sdlc.md:329-332 (Apache-2.0)).
 
