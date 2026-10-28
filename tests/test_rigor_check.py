@@ -734,10 +734,11 @@ def test_orchestrator_table_parses_and_names_the_owner() -> None:
     # reads the live table; a renewal of WAIVERS.md cannot change it
     o = read(ORCHESTRATOR)
     assert (
-        "| master-finhub-unit | other | gated | owner:daniel | 2026-10-14 |" in o
+        "| master-finhub-unit | other | light | owner:daniel | 2026-10-28 |" in o
     ), "repo rigor row"
-    _, out = MOD.check_text("o", o, "-", None, "master-finhub-unit/OR-S8", None, [], [], TODAY)
-    assert "EFFECTIVE: master-finhub-unit/OR-S8 gated" in "\n".join(out), out
+    today = date(2026, 10, 28)  # the live row is dated 2026-10-28
+    _, out = MOD.check_text("o", o, "-", None, "master-finhub-unit/OR-S8", None, [], [], today)
+    assert "EFFECTIVE: master-finhub-unit/OR-S8 light" in "\n".join(out), out
 
 
 CHANGED = [

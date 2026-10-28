@@ -27,7 +27,8 @@ Phase 4 timing: runtime goal, after the last slice of the run; adoption goal, af
 | "continue to the next slice" | runtime-builder for first slice without `RESULT: PASS` | boundary-qa, Phase 4 |
 | "final report" | Phase 4 only | — |
 | "re-rank" / "re-run the scout" / "what should we adopt next" | capability-scout with prior backlog | stop for Daniel's pick |
-| "build C3" / "adopt C3" / "build the next backlog item" | Phase 2 for that item (architect + fresh judge), then Phase 3 for it | QA, commit + PR on PASS, back to the backlog |
+| "build C3" / "adopt C3" / "build the next backlog item" (no weight named) | Quick lane (SKILL.md Lanes): plan, build, own gates, commit + draft PR | back to the backlog |
+| "build C3 full" / "C3 full" | Phase 2 for that item (architect + fresh judge), then Phase 3 for it | QA, commit + PR on PASS, back to the backlog |
 | "design the adoption of C3" | Phase 2 only | — |
 
 ## Slice order (Part B)
