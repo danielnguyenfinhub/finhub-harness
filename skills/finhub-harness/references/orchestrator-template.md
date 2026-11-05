@@ -402,6 +402,19 @@ The owner assigns the class and the level; no agent selects, raises or lowers ei
 
 A unit is `<scope>/<item>`. The rules are in `quality-gates.md` section 3-10. (adapted from references/openrig/packages/daemon/specs/agents/shared/skills/pods/orchestration-team/SKILL.md:149-152 (Apache-2.0))
 
+## Run mode block (every template)
+
+Paste once into the orchestrator, after the Delegation gate (and after the Rigor block when there is one). Write the default, `light` or `full`, that the owner chose for this harness. Mark the phases that only add checking `[full-only]` (a judge, a QA agent, a second pass); the phases that do the work carry no mark.
+
+```markdown
+## Run mode
+The user picks per run by saying "light" or "full"; the default is {light or full}. Record the choice in `_workspace/mode.txt` so a resume keeps it.
+- **light**: the main context does the work; at most two workers, one at a time; start each with `model: "haiku"` (extract, format, look up) or `"sonnet"` (write, analyse) on the `Agent` call; each returns at most 150 words and writes detail to `_workspace/`; read files by grep or line range; skip every phase marked `[full-only]` and any optional judge or QA agent, and list what was skipped in the report. A unit that the Rigor table runs `gated` keeps its gates in light mode.
+- **full**: every phase, with the models the agent files name.
+```
+
+This is a cost switch, not a rigor level: it never lowers a unit the Rigor table runs `gated`, and an agent never edits the Rigor table (`quality-gates.md` section 3-10). The `model` value on an `Agent` call beats the `model:` in the agent file, so light mode needs no second set of agent files; `maxTurns` and `effort` in an agent's frontmatter cap its turns and its thinking. On chat and Cowork there are no workers to start, so light and full differ only in which labelled passes run. The `finhub-harness-light` skill builds a whole harness with this block in a fraction of the tokens.
+
 ## Ask-first block (every template of a harness that can make an outside effect)
 
 A run-once phase (`state-ledger.md` section 3a) keeps a resume from repeating a send; nothing in it guards the first send. The block below puts the user between the drafted calls and the first outside call. Paste it once into the orchestrator, before the step that runs the first phase that sends, writes a record, publishes or pays, and paste it into a `## Single-context fallback` too: it names no `Agent`, `SendMessage`, Task or Workflow call, so it holds on every surface. A single-agent harness that sends carries it as well. In a gated unit the judge and QA audit the text before this point; a passed audit says the text is right, and only the user's yes lets it go out.

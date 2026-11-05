@@ -1,7 +1,7 @@
 {
   "name": "finhub-harness",
   "version": "0.1.0",
-  "description": "FinHub's harness factory: turns a domain description into an agent team, its skills and a surface-aware orchestrator, with an adversarially audited Authority List and mutation-tested QA. Ported from revfactory/harness v2.1.0 (Apache-2.0). Primary skill: finhub-harness; companion: finhub-harness-evolve (folds run feedback back in). The repo also ships the Master FinHub Python runtime.",
+  "description": "FinHub's harness factory: turns a domain description into an agent team, its skills and a surface-aware orchestrator, with an audited Authority List and mutation-tested QA. Skills: finhub-harness (full build), finhub-harness-light (low-token build and a light/full run switch), finhub-harness-evolve (folds run feedback back in). Ported from revfactory/harness v2.1.0 (Apache-2.0). The repo also ships the Master FinHub Python runtime.",
   "author": {
     "name": "Daniel Nguyen",
     "url": "https://github.com/danielnguyenfinhub"

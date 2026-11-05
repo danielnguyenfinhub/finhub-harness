@@ -56,7 +56,7 @@ Write the mode(s) the work actually needs (SKILL.md Step 2-1); a three-agent pip
 
 A skill is uploaded as a zip of the skill folder (`SKILL.md` plus `references/`) in the Anthropic skills format. The frontmatter is the same `name` and `description`. The zip contains the skill folder only, not a plugin manifest and not agent definitions.
 
-`dist/finhub-harness-skill.zip` and `dist/finhub-harness-evolve-skill.zip` (from `scripts/package-plugin.sh`) are this format.
+`dist/finhub-harness-skill.zip`, `dist/finhub-harness-light-skill.zip` and `dist/finhub-harness-evolve-skill.zip` (from `scripts/package-plugin.sh`) are this format. Each zip is one skill folder and stands alone: `finhub-harness-light` reads no other file, so it works when it is the only skill uploaded.
 
 ### Orchestration primitives
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Validate and package the finhub-harness plugin. Run from anywhere; operates on the repo root.
 # Outputs: dist/finhub-harness.plugin (Cowork), dist/finhub-harness-skill.zip and
-#          dist/finhub-harness-evolve-skill.zip (Claude chat upload).
+#          dist/finhub-harness-evolve-skill.zip and dist/finhub-harness-light-skill.zip (Claude chat upload).
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -34,7 +34,7 @@ fi
 
 # 2. required skills present; every skill passes the shared harness lint
 #    (frontmatter, name grammar and directory, description, subagent refs, v1 artefacts)
-for s in finhub-harness finhub-harness-evolve; do
+for s in finhub-harness finhub-harness-light finhub-harness-evolve; do
   [ -f "skills/$s/SKILL.md" ] || err "skills/$s/SKILL.md missing"
 done
 python3 skills/finhub-harness/scripts/lint_harness.py . || err "lint_harness.py found errors (see above)"
@@ -72,15 +72,16 @@ inc=".claude-plugin skills"
 mkzip dist/finhub-harness.plugin . $inc
 mkzip dist/finhub-harness-skill.zip skills finhub-harness
 mkzip dist/finhub-harness-evolve-skill.zip skills finhub-harness-evolve
+mkzip dist/finhub-harness-light-skill.zip skills finhub-harness-light
 
-for f in dist/finhub-harness.plugin dist/finhub-harness-skill.zip dist/finhub-harness-evolve-skill.zip; do
+for f in dist/finhub-harness.plugin dist/finhub-harness-skill.zip dist/finhub-harness-evolve-skill.zip dist/finhub-harness-light-skill.zip; do
   [ -s "$f" ] || { echo "FAIL: $f not built" >&2; exit 1; }
   printf '%s  %s bytes\n' "$f" "$(wc -c <"$f")"
 done
 
 # 4. ship scan (advisory): list machine-specific or private values in the packed files; never fails the build.
 # adapted from references/openrig/scripts/portability-report.mjs:3-5 (Apache-2.0)
-python3 scripts/ship_scan.py dist/finhub-harness.plugin dist/finhub-harness-skill.zip dist/finhub-harness-evolve-skill.zip
+python3 scripts/ship_scan.py dist/finhub-harness.plugin dist/finhub-harness-skill.zip dist/finhub-harness-evolve-skill.zip dist/finhub-harness-light-skill.zip
 rc=$?
 [ "$rc" -eq 0 ] || echo "ship scan: exit $rc (advisory; the build is not failed)" >&2
 exit 0
