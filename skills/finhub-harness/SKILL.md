@@ -191,6 +191,7 @@ A harness is not a one-off artefact. Retrospectives and feedback belong to `finh
 2. **Incremental change**: one item at a time, verify immediately.
 3. **Change history**: date, change, target, reason in `CLAUDE.md`.
 4. **Verify the change**: structure always; trigger test if a description changed; run test and dry run if the change is large; final `CLAUDE.md`-vs-files check.
+5. **Audit**: when the user asks whether a harness's rules have real checks, follow `references/audit-guide.md`: one row per rule or check, one finding each (enforced, partially enforced, unenforced rule, check lacking authority, unknown), evidence classes never promoted, and the audit reads and reports without editing.
 
 Suggest `finhub-harness-evolve` when the same feedback recurs, an agent fails twice for the same cause, a QA report or judge verdict rejects for the same reason twice, or the user keeps doing the orchestrator's job by hand.
 
