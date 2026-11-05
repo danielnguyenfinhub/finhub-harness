@@ -5,7 +5,8 @@ Usage:
 
 ORCHESTRATOR holds a `## Rigor` section with one table: `| scope | class | level | assigned-by | on |`
 (quality-gates.md section 3-10). A class is `audited-decision` (gated, preselected) or `other` (light by
-default; gated only when the owner assigns it). UNIT is `<scope>/<item>`: a row of the table and one piece of
+default; standard or gated only when the owner assigns it). The levels rank light < standard < gated, and an
+audited decision ranks above all three. UNIT is `<scope>/<item>`: a row of the table and one piece of
 work. LEDGER is the waiver ledger of section 3-9, or `-` for a harness that never downgrades. PREV is the
 previous committed copy of ORCHESTRATOR (for example `git show HEAD:<path>` written to a file), or `-` when
 there is none (the first commit). CHANGED is a file that lists the paths this commit changes, one per line,
@@ -24,7 +25,9 @@ waiver_ledger.py from its own directory and restates none of its rules.
 adapted from references/openrig/docs/reference/sdlc-conventions.md:20-24 (Apache-2.0): the default is the
 assigned flow, and an agent cannot raise or lower it for itself. adapted from
 references/openrig/packages/daemon/specs/agents/shared/skills/pods/orchestration-team/SKILL.md:149-152
-(Apache-2.0): only the owner's assignment admits or lifts a gate, and the decision is written down. The table,
+(Apache-2.0): only the owner's assignment admits or lifts a gate, and the decision is written down.
+adapted from references/openrig/docs/reference/planning-dial.md:3-6 and :53 (Apache-2.0): a middle rung between
+the lightest and the heaviest path, chosen per kind of work and recorded. The table,
 the ledger-row receipt, the comparison with the previous table, the effective-level computation and the
 report-line check are NET-NEW.
 """
@@ -47,7 +50,7 @@ USAGE = (
 )
 TABLE = ("scope", "class", "level", "assigned-by", "on")
 CLASSES = ("audited-decision", "other")
-LEVELS = ("light", "gated")
+LEVELS = ("light", "standard", "gated")
 SCOPE = re.compile(r"[a-z0-9][a-z0-9._-]{0,47}")
 UNIT = re.compile(r"([a-z0-9][a-z0-9._-]{0,47})/([A-Za-z0-9][A-Za-z0-9._-]{0,63})")
 FENCE = re.compile(r"^\s*(`{3,}|~{3,})\s*$|^\s*(`{3,}|~{3,})\S")
@@ -82,10 +85,10 @@ def unfenced(lines: Sequence[str]) -> list[tuple[int, str]]:
 
 
 def rank(cls: str, level: str) -> int:
-    """2 for audited-decision, 1 for an `other` unit that is gated, 0 for an `other` unit that is light."""
+    """3 for audited-decision, 2 for an `other` unit that is gated, 1 if standard, 0 if light."""
     if cls == "audited-decision":
-        return 2
-    return 1 if level == "gated" else 0
+        return 3
+    return {"gated": 2, "standard": 1}.get(level, 0)
 
 
 def read_table(name: str, text: str, today: date) -> tuple[dict[str, Row], list[str]]:
@@ -136,16 +139,16 @@ def read_table(name: str, text: str, today: date) -> tuple[dict[str, Row], list[
             if cls not in CLASSES:
                 bad.append(f"{name}:{n}: class must be one of: {', '.join(CLASSES)}")
             if level not in LEVELS:
-                bad.append(f"{name}:{n}: level must be light or gated")
+                bad.append(f"{name}:{n}: level must be light, standard or gated")
             owner = by.removeprefix("owner:") if by.startswith("owner:") else ""
             if by != "default" and owner not in wl.OWNERS:
                 bad.append(
                     f"{name}:{n}: assigned-by must be default or owner:<name> with <name> one of: "
                     + ", ".join(wl.OWNERS)
                 )
-            if cls == "audited-decision" and level == "light":
+            if cls == "audited-decision" and level != "gated":
                 bad.append(
-                    f"{name}:{n}: audited-decision output cannot be assigned light in the table"
+                    f"{name}:{n}: audited-decision output cannot be assigned {level} in the table"
                 )
             if cls == "other" and by == "default":
                 bad.append(f"{name}:{n}: class other must be assigned by owner:<name>, not default")
@@ -272,14 +275,17 @@ def check_text(
     if before is not None:
         for scope, (cls, level, by, on) in rows.items():
             was = (
-                rank(*before[scope][:2]) if scope in before else 2
+                rank(*before[scope][:2]) if scope in before else 3
             )  # an unlisted scope is audited-decision
             now = rank(cls, level)
             if now >= was:
                 continue
-            was_name = (
-                "audited-decision" if was == 2 else ("other, gated" if was == 1 else "other, light")
-            )
+            was_name = {
+                3: "audited-decision",
+                2: "other, gated",
+                1: "other, standard",
+                0: "other, light",
+            }[was]
             row = downgrades.get(f"{scope}/{TABLE_ITEM}")
             if row and active(row[0], today):
                 out.append(
@@ -323,7 +329,7 @@ def check_text(
     cls, base, by, on = rows[m.group(1)]
     level = base
     note = f"class {cls}, assigned-by {by} on {on}"
-    if base == "gated" and unit in downgrades:
+    if base != "light" and unit in downgrades:
         r, _ = downgrades[unit]
         start = wl.day(r["granted"])
         if active(r, today):
@@ -335,17 +341,17 @@ def check_text(
             )
         elif start and start > today:
             out.append(
-                f"NOTICE: downgrade waiver {r['id']} is not active until {r['granted']}; the unit runs gated"
+                f"NOTICE: downgrade waiver {r['id']} is not active until {r['granted']}; the unit runs {base}"
             )
         else:
             out.append(
-                f"NOTICE: downgrade waiver {r['id']} expired on {r['expires']}; the unit runs gated"
+                f"NOTICE: downgrade waiver {r['id']} expired on {r['expires']}; the unit runs {base}"
             )
     out.insert(1, f"EFFECTIVE: {unit} {level} ({note})")
     if level == "light" and ledger is not None and touched(ledger_name, paths):
         bad.append(f"{ledger_name}: a light unit must not change the ledger")
-    if level == "gated":
-        expect = f"RIGOR: gated unit={unit} by={by} on={on}"
+    if level != "light":
+        expect = f"RIGOR: {level} unit={unit} by={by} on={on}"
         have_qa = False
         for name, text in reports:
             is_qa, problems = check_report(name, text, expect)
@@ -353,7 +359,7 @@ def check_text(
             bad.extend(problems)
         if not have_qa:
             bad.append(
-                f"{orch_name}: gated unit has no QA report (a report whose first line is RESULT: PASS)"
+                f"{orch_name}: {level} unit has no QA report (a report whose first line is RESULT: PASS)"
             )
     out.extend(bad)
     out.append("STATE: RED" if bad else "STATE: CLEAN")

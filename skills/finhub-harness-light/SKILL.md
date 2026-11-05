@@ -13,6 +13,14 @@ Build the smallest harness that does the job and spend as few tokens as possible
 - It is not an audited decision (money, eligibility, compliance, client-facing text) and not software that needs QA gates. If it is, write one sentence naming the risk and ask the owner whether to use the full skill `finhub-harness`. You never decide a gate yourself; the owner does.
 - The user has not asked for a judge, QA agents or patterns borrowed from other repos.
 
+## Three levels
+
+The owner sets the level for each kind of work; you never pick or change it.
+- **light**: what this skill builds. The work is checked with the real tests and lint; no judge, no QA agent. The default for small jobs.
+- **standard**: one judge round, then one QA run on the real gates, no mutation tests unless the owner asks. Offer it for a normal expert build.
+- **full** (`gated`): every judge round and QA check. Money, eligibility, compliance and client-facing text stay full unless the owner downgrades them through a ledger row.
+For standard or full, say so and use the full skill `finhub-harness`.
+
 ## Procedure (one pass)
 
 1. **Look cheaply.** List `.claude/agents` and `.claude/skills` and print only the `name:` lines (`ls`, `grep -m1 '^name:'`). Read a file only to extend it, and then only the lines you need. If something already covers the job, extend it; never add a second.
@@ -34,7 +42,7 @@ Paste this into an orchestrator that has workers. A single-agent skill keeps onl
 ```markdown
 ## Run mode
 The user picks per run by saying "light" or "full"; the default is {light or full}. Record the choice in `_workspace/mode.txt` so a resume keeps it.
-- **light**: the main context does the work; at most two workers, one at a time; start each with `model: "haiku"` (extract, format, look up) or `"sonnet"` (write, analyse) on the `Agent` call; each returns at most 150 words and writes detail to `_workspace/`; read files by grep or line range; skip every phase marked `[full-only]` and any optional judge or QA agent, and list what was skipped in the report. A unit that the Rigor table runs `gated` keeps its gates in light mode.
+- **light**: the main context does the work; at most two workers, one at a time; start each with `model: "haiku"` (extract, format, look up) or `"sonnet"` (write, analyse) on the `Agent` call; each returns at most 150 words and writes detail to `_workspace/`; read files by grep or line range; skip every phase marked `[full-only]` and any optional judge or QA agent, and list what was skipped in the report. A unit that the Rigor table runs `gated` or `standard` keeps its gates in light mode.
 - **full**: every phase, with the models the agent files name.
 ```
 

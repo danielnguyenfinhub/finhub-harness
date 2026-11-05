@@ -392,12 +392,13 @@ Paste once into the orchestrator, after the Delegation gate and before Step 1:
 
 ```markdown
 ## Rigor
-The owner assigns the class and the level; no agent selects, raises or lowers either, and no agent classifies a unit. Audited decisions (money, eligibility, compliance and client-facing text) are gated and preselected; every other kind of unit is light unless the owner assigns it gated. An agent that thinks a unit needs another level writes one sentence naming the risk to the owner and continues. Lowering a row, or running one item light, needs the user's approval and a `rigor:<scope>/<item>` row in WAIVERS.md with the owner's quoted words (a harness that never downgrades keeps no ledger).
+The owner assigns the class and the level; no agent selects, raises or lowers either, and no agent classifies a unit. Audited decisions (money, eligibility, compliance and client-facing text) are gated and preselected; every other kind of unit is light unless the owner assigns it standard or gated. A standard unit runs one judge round and one QA run per unit, with no mutation spot-checks unless the owner asks (quality-gates.md section 3-10, RS1-RS6). An agent that thinks a unit needs another level writes one sentence naming the risk to the owner and continues. Lowering a row, or running one item light, needs the user's approval and a `rigor:<scope>/<item>` row in WAIVERS.md with the owner's quoted words (a harness that never downgrades keeps no ledger).
 
 | scope | class | level | assigned-by | on |
 |---|---|---|---|---|
 | {kind of unit} | audited-decision | gated | default | {YYYY-MM-DD} |
 | {kind of unit} | other | light | owner:{name} | {YYYY-MM-DD} |
+| {kind of unit} | other | standard | owner:{name} | {YYYY-MM-DD} |
 ```
 
 A unit is `<scope>/<item>`. The rules are in `quality-gates.md` section 3-10. (adapted from references/openrig/packages/daemon/specs/agents/shared/skills/pods/orchestration-team/SKILL.md:149-152 (Apache-2.0))
@@ -408,12 +409,13 @@ Paste once into the orchestrator, after the Delegation gate (and after the Rigor
 
 ```markdown
 ## Run mode
-The user picks per run by saying "light" or "full"; the default is {light or full}. Record the choice in `_workspace/mode.txt` so a resume keeps it.
-- **light**: the main context does the work; at most two workers, one at a time; start each with `model: "haiku"` (extract, format, look up) or `"sonnet"` (write, analyse) on the `Agent` call; each returns at most 150 words and writes detail to `_workspace/`; read files by grep or line range; skip every phase marked `[full-only]` and any optional judge or QA agent, and list what was skipped in the report. A unit that the Rigor table runs `gated` keeps its gates in light mode.
+The user picks per run by saying "light", "standard" or "full"; the default is {light, standard or full}. Record the choice in `_workspace/mode.txt` so a resume keeps it. The Rigor table is the floor: a run word can raise a unit for that run, never lower it.
+- **light**: the main context does the work; at most two workers, one at a time; start each with `model: "haiku"` (extract, format, look up) or `"sonnet"` (write, analyse) on the `Agent` call; each returns at most 150 words and writes detail to `_workspace/`; read files by grep or line range; skip every phase marked `[full-only]` and any optional judge or QA agent, and list what was skipped in the report. A unit that the Rigor table runs `gated` or `standard` keeps its gates in light mode.
+- **standard**: every phase, with one judge round and one QA run and no mutation spot-checks unless the owner asks (quality-gates.md section 3-10, RS2-RS4).
 - **full**: every phase, with the models the agent files name.
 ```
 
-This is a cost switch, not a rigor level: it never lowers a unit the Rigor table runs `gated`, and an agent never edits the Rigor table (`quality-gates.md` section 3-10). The `model` value on an `Agent` call beats the `model:` in the agent file, so light mode needs no second set of agent files; `maxTurns` and `effort` in an agent's frontmatter cap its turns and its thinking. On chat and Cowork there are no workers to start, so light and full differ only in which labelled passes run. The `finhub-harness-light` skill builds a whole harness with this block in a fraction of the tokens.
+Light is a cost switch, not a rigor level; standard and full raise one run and never lower a unit: it never lowers a unit the Rigor table runs `gated`, and an agent never edits the Rigor table (`quality-gates.md` section 3-10). The `model` value on an `Agent` call beats the `model:` in the agent file, so light mode needs no second set of agent files; `maxTurns` and `effort` in an agent's frontmatter cap its turns and its thinking. On chat and Cowork there are no workers to start, so light and full differ only in which labelled passes run. The `finhub-harness-light` skill builds a whole harness with this block in a fraction of the tokens.
 
 ## Ask-first block (every template of a harness that can make an outside effect)
 
