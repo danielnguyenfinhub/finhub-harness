@@ -256,8 +256,19 @@ Record at least one adversarial probe and its outcome, even if the code handled 
 | "No browser / no server available" | A row showing how you looked (`which <tool>`, the session's tool list). If it is truly absent: FAIL, naming it. |
 | "Too slow to check" | Start it with a time limit; if it does not finish, FAIL with the limit and the command named. |
 | "The mutant made the tests fail, so it is killed" | The `classify` output with `STATE: CAUGHT`. A failure that came from an import error, a timeout or another test is `INVALID`; redo the mutant. |
+| "The builder says it ran live" | The run's own output with the backend and model named (section 7-4a, E1). A run that used a mock or stub is recorded as regression coverage, not as a live run. |
 
 (adapted from references/openharness/src/openharness/coordinator/agent_definitions.py:294 (MIT))
+
+### 7-4a. Evidence honesty
+
+Apply these when a report, a PR line or a test claims that something was proved. They decide what an observed output may be called, not whether to run the check. (adapted from references/openhands/.agents/skills/custom-codereview-guide.md:207-221 and :236-238 and references/deepseek_harness/docs/testing.md:27 (MIT), idea only, fresh text)
+
+- **E1. A mocked or stubbed run is regression coverage, not live evidence.** A claim that something ran against the real service names the backend and the model or version the output came from. A report that cannot name them is recorded as unverified, whatever the output shows.
+- **E2. A bug fix is shown with the same setup before and after.** The unfixed version reproduces the bug and the fixed version does not, using the same command and inputs. If the bug cannot be reproduced that way, the report says so and calls the change defensive handling.
+- **E3. Pin the absence, not only the presence.** A test that asserts only the true claim proves nothing about the false one. Add a check that asserts the absence of the false claim (the call not made, the file not written, the field not set), and a seeded case in which the false claim is present and the check fails.
+- **E4. State what was checked and what was not.** Name the files, branches, platforms or sample the check covered and the part it left out. A sample is never reported as "all".
+- **E5. Verify the world, not the self-report.** Re-run the command yourself, or re-read the file, instead of accepting the builder's pasted output. That untouched files stayed untouched is the job of the drift row (section 7-10), so do not repeat it here.
 
 ### 7-5. Before FAIL
 
