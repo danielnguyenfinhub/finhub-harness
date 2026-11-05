@@ -253,6 +253,21 @@ def check_provenance(path: Path, data: dict[str, str], today: date) -> None:
         report("WARN", path, "verified-stale", msg)
 
 
+ASK_RE = re.compile(r"^#{2,3}\s+Ask before an outside effect\s*$")
+
+
+def check_explicit(path: Path, data: dict[str, str], text: str) -> None:
+    """A skill that carries the Ask-first block can send, write, publish or pay, so a model
+    must not start it unasked (RH28; adapted from
+    references/repository_harness/tests/installer/assert-agent-authority-contract.sh:90 (MIT))."""
+    if not any(ASK_RE.match(line) for _, line in prose(text)):
+        return
+    if scalar(data.get("disable-model-invocation", "")).lower() != "true":
+        msg = "skill has the Ask-first block but can be started by the model"
+        msg += "; fix: add disable-model-invocation: true to the frontmatter"
+        report("WARN", path, "send-implicit", msg)
+
+
 def check_pointer(path: Path) -> None:
     """The finhub-harness block of CLAUDE.md: per orchestrator name one begin marker line above one
     end marker line, no other block's marker between them (ERROR), at most POINTER_BUDGET bytes (WARN).
@@ -320,6 +335,7 @@ def main(argv: list[str]) -> int:
         name = check_meta(path, data, keys, expect)
         if not is_agent:
             check_provenance(path, data, today)
+            check_explicit(path, data, text)
         if name:
             owners.setdefault((is_agent, name), []).append(path)
         if is_agent:
