@@ -42,11 +42,13 @@ What FinHub adds on top of the original:
 
 | Surface | Steps | Verified? |
 | --- | --- | --- |
-| **Claude Code** | `/plugin marketplace add danielnguyenfinhub/finhub-harness`, then `/plugin install finhub-harness@finhub-harness-marketplace` | Marketplace manifest present; install flow not run end to end in this session |
+| **Claude Code** | `/plugin marketplace add danielnguyenfinhub/finhub-harness`, then `/plugin install finhub-harness@finhub-harness-marketplace`. Skills appear as `finhub-harness:finhub-harness`, `finhub-harness:finhub-harness-light`, `finhub-harness:finhub-harness-evolve`. The install copies the whole repository (about 1.4 GB with the `references/` submodules). | Verified 2026-11-05 with Claude Code 2.1.318 using the non-interactive `claude plugin marketplace add` / `claude plugin install` / `claude plugin list` (exit 0 each; version 0.1.0 enabled) and a headless run in which the skill loaded and began its Step 0 context check. It installs what is pushed to `main`, not unpushed local work. The interactive `/plugin` commands were not run. |
 | **Claude Cowork** | Run `bash scripts/package-plugin.sh`, then add `dist/finhub-harness.plugin` in Cowork's plugin settings | Package builds (script exits 0); loading in Cowork **not tested** |
 | **Claude chat (claude.ai)** | Run `bash scripts/package-plugin.sh`, then upload `dist/finhub-harness-skill.zip`, `dist/finhub-harness-light-skill.zip` and `dist/finhub-harness-evolve-skill.zip` as skills (the light one alone is enough for a small job) | Zips build; upload and behaviour **not tested** |
 
 `dist/` is git-ignored, so Cowork and chat users build the files themselves from a clone (needs `bash` and `python3`). The packager validates `plugin.json`, skill frontmatter and a few known-bad patterns before it writes anything.
+
+Fallback if the marketplace route fails (direct skill copy, verified to be discovered by Claude Code 2.1.318; invoking it was not run): `cp -r skills/finhub-harness skills/finhub-harness-light skills/finhub-harness-evolve ~/.claude/skills/`. The skills then appear under their bare names (`finhub-harness`, not `finhub-harness:finhub-harness`). Copy all three together: the full skill's scripts are referenced relative to its own folder.
 
 ### Use
 
@@ -83,7 +85,7 @@ Notes: `openhands` is a UI-only fork with no agent runtime. The `openharness` up
 
 - **Claude chat and Cowork:** whether sub-agents, messaging or file writing work there is unverified. The factory plans single-context execution on both until you confirm. The six-probe test script and result sheet are in [`docs/surface-verification.md`](docs/surface-verification.md).
 - **Docker sandbox:** its real-container test is skipped where no docker daemon exists, and was skipped in the build environment.
-- **Plugin install flow:** the commands above follow the plugin layout but were not run against a live Claude Code install.
+- **Plugin install flow:** run on 2026-11-05 with the non-interactive `claude plugin` commands (see Install); the interactive `/plugin` commands and the install of this branch's unmerged work were not run, and the install is about 1.4 GB because `references/` is copied.
 - **Migrated build orchestrator:** its Phase 2 was converted to the v2 tools and has not been re-run end to end.
 
 ## Quick start
