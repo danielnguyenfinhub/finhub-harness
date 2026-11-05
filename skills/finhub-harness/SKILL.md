@@ -191,6 +191,7 @@ A harness is not a one-off artefact. Retrospectives and feedback belong to `finh
 2. **Incremental change**: one item at a time, verify immediately.
 3. **Change history**: date, change, target, reason in `CLAUDE.md`.
 4. **Verify the change**: structure always; trigger test if a description changed; run test and dry run if the change is large; final `CLAUDE.md`-vs-files check.
+5. **Audit**: when the user asks whether a harness's rules have real checks, follow `references/audit-guide.md`: one row per rule or check, one finding each (enforced, partially enforced, unenforced rule, check lacking authority, unknown), evidence classes never promoted, and the audit reads and reports without editing.
 
 Suggest `finhub-harness-evolve` when the same feedback recurs, an agent fails twice for the same cause, a QA report or judge verdict rejects for the same reason twice, or the user keeps doing the orchestrator's job by hand.
 
@@ -238,6 +239,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - The same work over many items, pilot first, then fan out (rules P1-P6): `references/team-patterns.md` section 1-2a
 - Skill writing: `references/skill-writing-guide.md`
 - Skill testing: `references/skill-testing-guide.md`
+- A harness that tries changes and keeps the winners (the seven-item contract named before the first candidate, a read-only evaluation surface, a ledger, gates before the score, and a four-scenario A/B for team layouts): `references/experiment-profile.md`
 - QA agents: `references/qa-agent-guide.md`
 - Authority List, adversarial audit, mutation-tested QA, honest reporting: `references/quality-gates.md`
 - A mutant counts as caught only when the test written for it fails at the assertion written for it, between a passing run before and a passing run after: `references/quality-gates.md` §3-4 (rules M1-M8) and `scripts/mutant_gate.py` (adapted from references/openrig/packages/test-system/ci/result.mjs:33-34 (Apache-2.0))

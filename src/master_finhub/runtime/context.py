@@ -21,6 +21,7 @@ import json
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Final
 
 from master_finhub.runtime.loop import Message
@@ -138,6 +139,7 @@ class ContextManager:
     clip_budget_tokens: int = CLIP_BUDGET_TOKENS
     threshold_ratio: float = THRESHOLD_RATIO
     retain_ratio: float = RETAIN_RATIO
+    spill_dir: Path | None = None  # when set, an oversized tool result is saved whole there
 
     def __post_init__(self) -> None:
         if self.context_window_tokens <= 0:
@@ -166,20 +168,47 @@ class ContextManager:
     def retain_tokens(self) -> int:
         return math.floor(self.context_window_tokens * self.retain_ratio)
 
-    def fit(self, messages: list[Message]) -> list[Message]:
-        clipped = [
+    def _shrunk(self, text: str) -> str:
+        """Spill the result to a file when a directory is set and that works, else clip it."""
+        if self.spill_dir is not None:
+            from master_finhub.runtime.spill import SpillStore  # spill.py imports this module
+
+            spilled = SpillStore(self.spill_dir).spill(text, self.clip_budget_tokens)
+            if spilled is not None:
+                return spilled
+        return clip_text(text, self.clip_budget_tokens)
+
+    def _clipped(self, messages: list[Message]) -> list[Message]:
+        return [
             (
-                replace(m, content=clip_text(m.content, self.clip_budget_tokens))
+                replace(m, content=self._shrunk(m.content))
                 if m.role == "tool" and estimate_tokens(m.content) > self.clip_budget_tokens
                 else m
             )
             for m in messages
         ]
+
+    def fit(self, messages: list[Message]) -> list[Message]:
+        clipped = self._clipped(messages)
         total = sum(estimate_message(m) for m in clipped)
         if total < self.threshold_tokens:
             return clipped
+        return self._compacted(clipped, total, self.retain_tokens)
+
+    def compact(self, messages: list[Message]) -> list[Message]:
+        """Compact now, even below the threshold: the provider said the window is full.
+
+        Keeps a tail of at most half the current size. Raises ContextOverflowError when nothing older
+        can be compacted. (adapted from
+        references/deepseek_harness/packages/compaction/compaction-basic/src/index.ts:179 (MIT))
+        """
+        clipped = self._clipped(messages)
+        total = sum(estimate_message(m) for m in clipped)
+        return self._compacted(clipped, total, min(self.retain_tokens, total // 2))
+
+    def _compacted(self, clipped: list[Message], total: int, retain: int) -> list[Message]:
         pinned = 1 if clipped and clipped[0].role == "user" else 0
-        keep_from = select_compactable_range(clipped, self.retain_tokens, pinned)
+        keep_from = select_compactable_range(clipped, retain, pinned)
         if keep_from is None:
             raise self._overflow(clipped, total)
         result = [*clipped[:pinned], summarise(clipped[pinned:keep_from]), *clipped[keep_from:]]

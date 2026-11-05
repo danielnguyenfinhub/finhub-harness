@@ -22,7 +22,7 @@ import subprocess
 import threading
 import time
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final, Self
 
@@ -88,6 +88,8 @@ class McpToolInfo:
     public_name: str
     description: str
     input_schema: dict[str, Any]
+    # annotations.readOnlyHint is True; a tool with no hint counts as a write tool, as the MCP spec does
+    read_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -336,12 +338,14 @@ class McpClient:
             for raw in result.get("tools") or []:
                 if isinstance(raw, dict) and isinstance(raw.get("name"), str):
                     schema = raw.get("inputSchema")
+                    hints = raw.get("annotations")
                     tools.append(
                         McpToolInfo(
                             name=raw["name"],
                             public_name=public_tool_name(self._server.name, raw["name"]),
                             description=str(raw.get("description") or ""),
                             input_schema=schema if isinstance(schema, dict) else {"type": "object"},
+                            read_only=isinstance(hints, dict) and hints.get("readOnlyHint") is True,
                         )
                     )
             cursor = result.get("nextCursor") or None
@@ -414,9 +418,10 @@ class McpClient:
 class McpTool:
     """Adapts one MCP tool to the runtime ``Tool`` protocol."""
 
-    def __init__(self, client: McpClient, info: McpToolInfo) -> None:
+    def __init__(self, client: McpClient, info: McpToolInfo, quarantine: str | None = None) -> None:
         self._client = client
         self._info = info
+        self._quarantine = quarantine
         self.spec = ToolSpec(
             name=info.public_name,
             description=info.description,
@@ -425,17 +430,41 @@ class McpTool:
         )
 
     def run(self, arguments: dict[str, Any]) -> str:
+        if self._quarantine is not None:
+            raise McpToolError(self._quarantine)
         result = self._client.call_tool(self._info.name, arguments)
         if result.is_error:
             raise McpToolError(result.text)
         return result.text
 
 
-def mcp_tools(client: McpClient) -> list[McpTool]:
+def mcp_tools(
+    client: McpClient,
+    *,
+    previous: Collection[str] | None = None,
+    enabled: Collection[str] = (),
+) -> list[McpTool]:
+    """Tools of one server. ``previous`` is the tool names of an earlier listing: a tool that is new
+    since then and not read-only comes back quarantined, so a call is refused with a reason until its
+    name is in ``enabled``. The first listing (``previous`` is None) is the baseline. (adapted from
+    references/paperclip/doc/MCP-ACCESS-GOVERNANCE.md:221 (MIT), idea only)"""
     cfg = client._server
-    return [
-        McpTool(client, info)
-        for info in client.list_tools()
-        if (cfg.allowed_tools is None or info.name in cfg.allowed_tools)
-        and info.name not in cfg.blocked_tools
-    ]
+    tools: list[McpTool] = []
+    for info in client.list_tools():
+        if (cfg.allowed_tools is not None and info.name not in cfg.allowed_tools) or (
+            info.name in cfg.blocked_tools
+        ):
+            continue
+        why = None
+        if (
+            previous is not None
+            and info.name not in previous
+            and not info.read_only
+            and info.name not in enabled
+        ):
+            why = (
+                f"quarantined: tool {info.name!r} is new since the last catalog listing and is not "
+                "marked read-only; an operator must enable it by name before it can be called"
+            )
+        tools.append(McpTool(client, info, why))
+    return tools

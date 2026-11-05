@@ -12,6 +12,8 @@ deepseek-harness
 
 from __future__ import annotations
 
+import math
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal, Protocol
@@ -28,8 +30,38 @@ LoopStatus = Literal["awaiting_model", "tools_in_flight", "completed"]
 InFlightPolicy = Literal["stop", "rerun", "report_unknown"]
 
 
+FailurePolicy = Literal["ignore", "warn", "raise"]
+
+
 class AgentLoopError(RuntimeError):
     """Raised when the loop cannot finish (e.g. max_steps exceeded)."""
+
+
+class ToolFailureError(AgentLoopError):
+    """Raised under ``on_tool_failure="raise"`` when a tool reports a failure."""
+
+
+class ToolFailure(Exception):
+    """A tool's own report that it failed: why, an optional code, and whether a retry may help.
+
+    Nothing is guessed from the text of a result. (adapted from
+    references/crewai/lib/crewai/src/crewai/tools/tool_failure.py:71 (MIT), idea only)
+    """
+
+    def __init__(self, reason: str, *, code: str | None = None, retryable: bool = False) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.code = code
+        self.retryable = retryable
+
+
+@dataclass(frozen=True)
+class FailureRecord:
+    tool: str
+    call_id: str
+    reason: str
+    code: str | None
+    retryable: bool
 
 
 @dataclass(frozen=True)
@@ -45,6 +77,13 @@ class ToolSpec:
     description: str
     parameters: dict[str, Any]
     idempotent: bool = False  # running it twice is harmless; never sent to the model
+    timeout_s: float | None = None  # deadline for one run; never sent to the model
+
+    def __post_init__(self) -> None:
+        if self.timeout_s is not None and not (
+            self.timeout_s > 0 and math.isfinite(self.timeout_s)
+        ):
+            raise ValueError("timeout_s must be a positive finite number of seconds")
 
 
 @dataclass(frozen=True)
@@ -132,8 +171,8 @@ class LLM(Protocol):
 class Tool(Protocol):
     spec: ToolSpec
 
-    def run(self, arguments: dict[str, Any]) -> str:
-        """Execute the tool and return its textual result."""
+    def run(self, arguments: dict[str, Any]) -> str | ToolFailure:
+        """Execute the tool and return its textual result, or a ToolFailure it reports."""
         ...
 
 
@@ -157,7 +196,14 @@ class AgentLoop:
         context: ContextPolicy | None = None,
         guard: ToolGuard | None = None,
         checkpoint: CheckpointHook | None = None,
+        on_tool_failure: FailurePolicy = "warn",
+        max_overflow_retries: int = 1,
     ) -> None:
+        if max_overflow_retries < 0:
+            raise ValueError("max_overflow_retries must be zero or more")
+        self._max_overflow_retries = max_overflow_retries
+        self._on_failure = on_tool_failure
+        self.failures: list[FailureRecord] = []  # tool-reported failures, kept under "warn"/"raise"
         self._llm = llm
         self._guard = guard
         self._context = context
@@ -199,13 +245,39 @@ class AgentLoop:
                 )
             if self._context is not None:
                 messages = self._context.fit(messages)
-            reply = self._llm.complete(list(messages), self._specs)
+            reply, messages = self._complete(messages)
             step += 1
             messages.append(Message("assistant", reply.content, tool_calls=tuple(reply.tool_calls)))
             self._save(step, messages)
             if not reply.tool_calls:
                 return reply.content
             pending = list(reply.tool_calls)
+
+    def _complete(self, messages: list[Message]) -> tuple[AssistantMessage, list[Message]]:
+        """One model call. When the provider says the window is full (an error whose ``code`` is
+        ``CONTEXT_WINDOW``), compact once and call again, up to ``max_overflow_retries`` times; the
+        count starts again with the next call. (adapted from
+        references/deepseek_harness/packages/compaction/compaction-basic/src/index.ts:179 (MIT))"""
+        retries = 0
+        while True:
+            try:
+                return self._llm.complete(list(messages), self._specs), messages
+            except Exception as exc:
+                compact = getattr(self._context, "compact", None)
+                if getattr(exc, "code", None) != "CONTEXT_WINDOW" or compact is None:
+                    raise
+                if self._max_overflow_retries == 0:
+                    raise
+                if retries >= self._max_overflow_retries:
+                    # imported here: context.py imports this module for Message
+                    from master_finhub.runtime.context import ContextOverflowError
+
+                    raise ContextOverflowError(
+                        f"The provider still reports a full context window after "
+                        f"{retries} compaction(s). Lower context_window_tokens or shorten the task."
+                    ) from exc
+                retries += 1
+                messages = compact(messages)
 
     def _save(self, step: int, messages: list[Message]) -> None:
         if self._checkpoint is not None:
@@ -243,6 +315,63 @@ class AgentLoop:
             if denial is not None:
                 return f"Error: {denial}"
         try:
-            return tool.run(call.arguments)
+            out = self._call(tool, call)
+        except _Deadline:
+            return (
+                f"Error: TOOL_TIMEOUT: tool '{call.name}' did not finish within "
+                f"{tool.spec.timeout_s:g} s; it may or may not have taken effect. "
+                "Verify before retrying."
+            )
+        except ToolFailure as fail:
+            out = fail
         except Exception as exc:  # noqa: BLE001 - tool faults go back to the model
             return f"Error: tool '{call.name}' failed: {type(exc).__name__}: {exc}"
+        if isinstance(out, ToolFailure):
+            return self._failed(call, out)
+        return out
+
+    def _call(self, tool: Tool, call: ToolCall) -> str | ToolFailure:
+        """Run the tool, under its deadline when it declares one.
+
+        TOOL_TIMEOUT means this loop's own timer fired. A ``TimeoutError`` the tool raises itself
+        passes through unchanged and is reported as an ordinary tool failure. (adapted from
+        references/deepseek_harness/packages/guard/timeout-policy/src/index.ts:56 (MIT), idea only)
+        """
+        limit = tool.spec.timeout_s
+        if limit is None:
+            return tool.run(call.arguments)
+        box: dict[str, Any] = {}
+
+        def work() -> None:
+            try:
+                box["out"] = tool.run(call.arguments)
+            except Exception as exc:  # noqa: BLE001 - re-raised in the caller's thread
+                box["err"] = exc
+
+        # ponytail: a thread cannot be killed, so a timed-out tool keeps running in the background and
+        # its late result is dropped; use a subprocess per call if a runaway tool must be stopped.
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
+        worker.join(limit)
+        if worker.is_alive():
+            raise _Deadline
+        if "err" in box:
+            raise box["err"]
+        out: str | ToolFailure = box["out"]
+        return out
+
+    def _failed(self, call: ToolCall, fail: ToolFailure) -> str:
+        if self._on_failure != "ignore":
+            self.failures.append(
+                FailureRecord(call.name, call.id, fail.reason, fail.code, fail.retryable)
+            )
+        if self._on_failure == "raise":
+            raise ToolFailureError(f"tool '{call.name}' reported a failure: {fail.reason}")
+        extra = (f" (code {fail.code})" if fail.code else "") + (
+            "; retryable" if fail.retryable else ""
+        )
+        return f"Error: tool '{call.name}' failed: {fail.reason}{extra}"
+
+
+class _Deadline(Exception):
+    """The loop's own deadline timer fired."""
