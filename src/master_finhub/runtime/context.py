@@ -21,6 +21,7 @@ import json
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Final
 
 from master_finhub.runtime.loop import Message
@@ -138,6 +139,7 @@ class ContextManager:
     clip_budget_tokens: int = CLIP_BUDGET_TOKENS
     threshold_ratio: float = THRESHOLD_RATIO
     retain_ratio: float = RETAIN_RATIO
+    spill_dir: Path | None = None  # when set, an oversized tool result is saved whole there
 
     def __post_init__(self) -> None:
         if self.context_window_tokens <= 0:
@@ -166,10 +168,20 @@ class ContextManager:
     def retain_tokens(self) -> int:
         return math.floor(self.context_window_tokens * self.retain_ratio)
 
+    def _shrunk(self, text: str) -> str:
+        """Spill the result to a file when a directory is set and that works, else clip it."""
+        if self.spill_dir is not None:
+            from master_finhub.runtime.spill import SpillStore  # spill.py imports this module
+
+            spilled = SpillStore(self.spill_dir).spill(text, self.clip_budget_tokens)
+            if spilled is not None:
+                return spilled
+        return clip_text(text, self.clip_budget_tokens)
+
     def _clipped(self, messages: list[Message]) -> list[Message]:
         return [
             (
-                replace(m, content=clip_text(m.content, self.clip_budget_tokens))
+                replace(m, content=self._shrunk(m.content))
                 if m.role == "tool" and estimate_tokens(m.content) > self.clip_budget_tokens
                 else m
             )
