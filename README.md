@@ -84,9 +84,9 @@ Notes: `openhands` is a UI-only fork with no agent runtime. The `openharness` up
 ## Gaps (stated plainly)
 
 - **Claude chat and Cowork:** whether sub-agents, messaging or file writing work there is unverified. The factory plans single-context execution on both until you confirm. The six-probe test script and result sheet are in [`docs/surface-verification.md`](docs/surface-verification.md).
-- **Docker sandbox:** its real-container test is skipped where no docker daemon exists, and was skipped in the build environment.
+- **Docker sandbox:** verified 2026-11-05 against a real daemon (Docker 29.9.2, started with `dockerd` as root inside the build sandbox, image `python:3.12-alpine` pulled): `tests/test_docker_engine.py` passes 10 of 10 with `test_echo_in_container` running, not skipped. That test checks echo, a refused write to `/etc` and a refused network call, so it is a smoke test; the hardening flags are proven by the argv tests only. The test still skips where no daemon or image exists, so CI without Docker does not run it.
 - **Plugin install flow:** run on 2026-11-05 with the non-interactive `claude plugin` commands (see Install); the interactive `/plugin` commands and the install of this branch's unmerged work were not run, and the install is about 1.4 GB because `references/` is copied.
-- **Migrated build orchestrator:** its Phase 2 was converted to the v2 tools and has not been re-run end to end.
+- **Migrated build orchestrator:** run end to end on 2026-11-05 in the full lane for the `standard` rigor unit: a named strategy-architect, fresh-context judge per round (2 rounds), `SendMessage` revision, a builder, then QA (one FAIL, kept as `_r1`, then PASS) and the commit gates. The unit ran through the v2 tools; the mining and capability-ranking phases (1 and 1b) were also run as fourteen parallel miners plus the scout. Not re-run: the runtime-slice path (`slice N`), which this run did not touch.
 
 ## Quick start
 
