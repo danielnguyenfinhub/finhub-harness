@@ -197,7 +197,11 @@ class AgentLoop:
         guard: ToolGuard | None = None,
         checkpoint: CheckpointHook | None = None,
         on_tool_failure: FailurePolicy = "warn",
+        max_overflow_retries: int = 1,
     ) -> None:
+        if max_overflow_retries < 0:
+            raise ValueError("max_overflow_retries must be zero or more")
+        self._max_overflow_retries = max_overflow_retries
         self._on_failure = on_tool_failure
         self.failures: list[FailureRecord] = []  # tool-reported failures, kept under "warn"/"raise"
         self._llm = llm
@@ -241,13 +245,39 @@ class AgentLoop:
                 )
             if self._context is not None:
                 messages = self._context.fit(messages)
-            reply = self._llm.complete(list(messages), self._specs)
+            reply, messages = self._complete(messages)
             step += 1
             messages.append(Message("assistant", reply.content, tool_calls=tuple(reply.tool_calls)))
             self._save(step, messages)
             if not reply.tool_calls:
                 return reply.content
             pending = list(reply.tool_calls)
+
+    def _complete(self, messages: list[Message]) -> tuple[AssistantMessage, list[Message]]:
+        """One model call. When the provider says the window is full (an error whose ``code`` is
+        ``CONTEXT_WINDOW``), compact once and call again, up to ``max_overflow_retries`` times; the
+        count starts again with the next call. (adapted from
+        references/deepseek_harness/packages/compaction/compaction-basic/src/index.ts:179 (MIT))"""
+        retries = 0
+        while True:
+            try:
+                return self._llm.complete(list(messages), self._specs), messages
+            except Exception as exc:
+                compact = getattr(self._context, "compact", None)
+                if getattr(exc, "code", None) != "CONTEXT_WINDOW" or compact is None:
+                    raise
+                if self._max_overflow_retries == 0:
+                    raise
+                if retries >= self._max_overflow_retries:
+                    # imported here: context.py imports this module for Message
+                    from master_finhub.runtime.context import ContextOverflowError
+
+                    raise ContextOverflowError(
+                        f"The provider still reports a full context window after "
+                        f"{retries} compaction(s). Lower context_window_tokens or shorten the task."
+                    ) from exc
+                retries += 1
+                messages = compact(messages)
 
     def _save(self, step: int, messages: list[Message]) -> None:
         if self._checkpoint is not None:
