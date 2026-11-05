@@ -239,6 +239,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - The same work over many items, pilot first, then fan out (rules P1-P6): `references/team-patterns.md` section 1-2a
 - Skill writing: `references/skill-writing-guide.md`
 - Skill testing: `references/skill-testing-guide.md`
+- A harness that tries changes and keeps the winners (the seven-item contract named before the first candidate, a read-only evaluation surface, a ledger, gates before the score, and a four-scenario A/B for team layouts): `references/experiment-profile.md`
 - QA agents: `references/qa-agent-guide.md`
 - Authority List, adversarial audit, mutation-tested QA, honest reporting: `references/quality-gates.md`
 - A mutant counts as caught only when the test written for it fails at the assertion written for it, between a passing run before and a passing run after: `references/quality-gates.md` §3-4 (rules M1-M8) and `scripts/mutant_gate.py` (adapted from references/openrig/packages/test-system/ci/result.mjs:33-34 (Apache-2.0))
