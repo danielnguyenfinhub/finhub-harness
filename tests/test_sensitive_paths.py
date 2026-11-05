@@ -786,9 +786,13 @@ def scan_source(src: str, rel: str) -> tuple[list[tuple[str, int]], int]:
         elif isinstance(node, ast.Attribute):
             if node.attr in PRIV and _dotted(node.value) in names:
                 bad.append((f"attr {node.attr}", node.lineno))
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and rel != CLIENT:
-            if node.value == "sensitive_paths" or node.value in PRIV:
-                bad.append((f"string {node.value}", node.lineno))
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and rel != CLIENT
+            and (node.value == "sensitive_paths" or node.value in PRIV)
+        ):
+            bad.append((f"string {node.value}", node.lineno))
     return bad, allowed
 
 

@@ -111,6 +111,18 @@ A producing agent and a verifying agent work as a pair.
 
 **Execution mode v2 recommends:** If the verification criteria can be expressed in code, use Workflow orchestration (Mode A). Run parallel verification for each item found by the adversarial verification pattern below. If subjective judgments must be reconciled, launch the producer and verifier as a **persistent agent pair** with names and exchange feedback through SendMessage. The producer keeps the earlier conversation, so it can correct exactly the parts that were flagged.
 
+### 1-4a. A reviewer's verdict fails closed
+
+Add this to every producer-reviewer pair and to every harness step where a reviewer, judge or checker decides whether work moves on. A reviewer that cannot answer must never let the work through by default. (adapted from references/crewai/lib/crewai/src/crewai/tasks/llm_guardrail.py:49, :89 and :125 and references/crewai/lib/crewai/src/crewai/utilities/guardrail.py:81 and :106 (MIT), idea only, fresh text)
+
+- **V1. Only a readable verdict counts.** A reply that is empty, cut off, not parseable, or names neither pass nor fail is never a pass. Neither is an error, a timeout or a refusal. The orchestrator records the step as not verified, does not advance, and says which reply it could not read.
+- **V2. The reviewer judges and explains; it does not rewrite the artifact.** Its reply is a verdict plus the reason for a fail. Fixes belong to the producer, so a reviewer that edits the work has also removed the independent check.
+- **V3. A retry carries feedback.** When a verdict is fail, the producer gets the reviewer's reason and the previous result in its next brief. A retry without feedback is not allowed, because it repeats the first attempt and burns a round.
+- **V4. The verdict is exclusive.** A pass carries no error and a fail carries no result. A reply that carries both, or neither, is unreadable under V1.
+- **V5. The cap ends in a stop, not a pass.** After the retry cap of section 1-4 the orchestrator stops, shows the user the last feedback and the last result, and reports the step as not passed.
+
+On Claude chat and Cowork, where one context plays producer and reviewer in labelled passes, V1 to V5 apply to the reviewer pass in the same way; whether the host also runs each pass in isolation is unverified.
+
 ### 1-5. Supervisor
 
 A central agent manages work state and divides the work according to progress.
