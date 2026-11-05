@@ -44,6 +44,7 @@ WINDOW_RE = re.compile(r"[0-9]{1,4}")
 LOCATOR_RE = re.compile(r"https?://\S+|\b(?:19|20)[0-9]{2}\b")
 MAX_WINDOW = 3650
 AGENT_KEYS = {"name", "description", "tools", "model", "color"}
+AGENT_KEYS |= {"maxTurns", "effort", "disallowedTools"}  # cost fields in the Claude Code subagent docs
 FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 LINK_RE = re.compile(r"!?\[[^\]\n]{0,300}\]\(\s*(<[^>\n]+>|[^)\s]+)")
 # a definition: not a ^footnote, a path-like target, then end of line or a quoted/parenthesised title

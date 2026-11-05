@@ -5,7 +5,7 @@
 ## Setup
 
 1. `bash scripts/package-plugin.sh` (writes `dist/`, which is git-ignored).
-2. Chat: upload `dist/finhub-harness-skill.zip` and `dist/finhub-harness-evolve-skill.zip` as skills. Cowork: add `dist/finhub-harness.plugin`.
+2. Chat: upload `dist/finhub-harness-skill.zip`, `dist/finhub-harness-light-skill.zip` and `dist/finhub-harness-evolve-skill.zip` as skills. Cowork: add `dist/finhub-harness.plugin`.
 3. Use a fresh conversation per surface. Do not paste anything from `surfaces.md` into it.
 
 ## Probes
@@ -21,6 +21,9 @@ Run in order. Record exactly what happens, including error text. Do not retry a 
 | P5 | Re-run P1 to completion, then read the orchestrator it wrote | Role-labelled sections in ONE context; no unconditional `Agent`, `SendMessage` or `Workflow` calls; "unverified — confirm in that surface" next to any step that depends on a feature P2-P4 did not confirm | The single-context fallback is what the factory promises |
 | P6 | `harness retrospective: the document checker missed a missing signature page` | The `finhub-harness-evolve` skill loads | Companion skill trigger |
 | P7 | Upload a one-agent fixture harness whose agent lists `fixture` under `## Required connectors`, attach no such connector, then send `run the fixture harness` | The orchestrator names `fixture` and the agent, then asks whether to attach, continue without, or stop; it does not stop by itself | `surfaces.md` §4 Connectors row and §6 check 7: on chat and Cowork the preflight warns and asks |
+| L1 | `build a light harness for a person who summarises one weekly report` | The `finhub-harness-light` skill loads (not `finhub-harness`), writes one skill and no agent file, and reports in ten lines or fewer. Upload only `finhub-harness-light-skill.zip` for this probe | Light skill works standalone on chat and Cowork (no other file is read) |
+| L2 | On a harness with two workers: `run it light`, then `run it full` | Light names the skipped `[full-only]` phases and starts no more than two workers, one at a time, with `haiku` or `sonnet`; full runs every phase. On chat and Cowork (no workers) the two modes differ only in which labelled passes run | The Run mode block behaves as the template says |
+| L3 | With all three skills uploaded: `build a harness for loan document checking` | The full `finhub-harness` skill loads, or the light skill stops and asks the owner whether to use the full one, because the job touches eligibility and client-facing text. It never builds the harness without asking | Trigger collision guard: money, eligibility and compliance work does not run light by accident |
 
 ## Result sheet (fill in, then paste back)
 
@@ -33,6 +36,9 @@ Run in order. Record exactly what happens, including error text. Do not retry a 
 | P5 | | |
 | P6 | | |
 | P7 | | |
+| L1 | | |
+| L2 | | |
+| L3 | | |
 
 Also note: product and plan (for example Claude Pro or a Cowork build), the date, and whether any connector was attached.
 
