@@ -144,6 +144,26 @@ Retry policy: if a panel still does not pass after two fixes, tell the user the 
 
 ---
 
+## Example 6: A reviewer that returns garbage (producer-reviewer, fails closed)
+
+**Composition:** Producer-reviewer, with the verdict rules of `team-patterns.md` section 1-4a
+
+**Why this choice:** A document pair is only as safe as its weakest answer. This case tests the reviewer, not the producer: the reviewer is a stub that returns garbage, so the harness has to show it stops.
+
+```
+Stage 1: Agent(name: "drafter") → writes _workspace/draft.md
+Stage 2: Agent(subagent_type: "doc-reviewer", prompt: "Reply PASS, or FAIL with the reason") once
+       Stub reply: "lorem ipsum {{" (garbage: no verdict, not parseable)
+       → V1: the step is recorded as not verified; the orchestrator does not advance to Stage 3
+       → the report names the reply it could not read
+Stage 3 (only after a readable PASS): publish the draft
+Check: a stub that replies PASS with an error attached, or an empty reply, also does not advance (V1, V4).
+       A readable FAIL goes back to the drafter with the reason and draft.md (V3), at most twice.
+(adapted from references/crewai/lib/crewai/src/crewai/utilities/guardrail.py:106 (MIT), idea only)
+```
+
+---
+
 ## How to save artifacts
 
 - **Agent definitions:** Create them at `project/.claude/agents/{name}.md`. Always include the core roles, working principles, input and output rules, how to call again, error handling, and collaboration method. Add communication rules for persistent agents, and the structured output format for agents used in workflows.
