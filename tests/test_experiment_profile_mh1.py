@@ -99,8 +99,14 @@ def test_effect_size_claims_carry_sample_size() -> None:
 
 def test_attribution_lines() -> None:
     t = DOC.read_text(encoding="utf-8")
-    assert "references/meta_harness/.agents/skills/harness/references/autonomous-experimentation.md:23-33" in t
-    assert "references/meta_harness/.agents/skills/harness/references/skill-testing-guide.md:184-202" in t
+    assert (
+        "references/meta_harness/.agents/skills/harness/references/autonomous-experimentation.md:23-33"
+        in t
+    )
+    assert (
+        "references/meta_harness/.agents/skills/harness/references/skill-testing-guide.md:184-202"
+        in t
+    )
     assert "references/revfactory_harness/README.md:259" in t
     assert "(Apache-2.0)" in t
 
