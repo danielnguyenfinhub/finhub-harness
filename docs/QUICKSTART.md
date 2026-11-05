@@ -2,7 +2,7 @@
 
 ## 1. Use the harness factory (recommended starting point)
 
-In Claude Code (or after packaging for chat/Cowork):
+First install: in Claude Code run `/plugin marketplace add danielnguyenfinhub/finhub-harness` then `/plugin install finhub-harness@finhub-harness-marketplace` (or, from a shell, `claude plugin marketplace add ...` and `claude plugin install ...`). For a small job, ask for the light mode ("build a light harness for ..."); the skill is `finhub-harness:finhub-harness-light`. For chat or Cowork, package first with `bash scripts/package-plugin.sh` (not tested on those surfaces). Then say:
 
 ```
 build a harness for <your domain>

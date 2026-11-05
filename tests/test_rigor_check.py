@@ -182,7 +182,7 @@ def test_class_other_cannot_be_assigned_by_default(tmp_path: Path) -> None:
 def test_class_and_level_values_are_checked(tmp_path: Path) -> None:
     cases = {
         "| client-email | software | gated | default | 2026-10-14 |\n": "class must be one of",
-        "| client-email | other | heavy | owner:daniel | 2026-10-14 |\n": "level must be light or gated",
+        "| client-email | other | heavy | owner:daniel | 2026-10-14 |\n": "level must be light, standard or gated",
     }
     for rows, msg in cases.items():
         code, out = run(tmp_path, table=orch(rows))
