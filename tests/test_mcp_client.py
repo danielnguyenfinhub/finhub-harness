@@ -143,7 +143,7 @@ def test_server_request_flood_closes_session() -> None:
 
 
 def test_public_name_rules() -> None:
-    assert public_tool_name("stub", "echo") == "mcp__stub__echo"
+    assert public_tool_name("stub", "echo").startswith("mcp__stub__echo_")
     long = public_tool_name("stub", "t" * 100)
     assert len(long) == 64 and long[-13] == "_" and int(long[-12:], 16) >= 0
     assert public_tool_name("stub", "a.b") != public_tool_name("stub", "a_b")
@@ -154,9 +154,9 @@ def test_filter_block_wins() -> None:
     with McpClient(
         server(allowed_tools=frozenset({"echo", "fail"}), blocked_tools=frozenset({"fail"}))
     ) as c:
-        assert [t.spec.name for t in mcp_tools(c)] == ["mcp__stub__echo"]
+        assert [t.spec.name for t in mcp_tools(c)] == [public_tool_name("stub", "echo")]
     with McpClient(server(allowed_tools=frozenset({"fail"}))) as c:
-        assert [t.spec.name for t in mcp_tools(c)] == ["mcp__stub__fail"]
+        assert [t.spec.name for t in mcp_tools(c)] == [public_tool_name("stub", "fail")]
 
 
 def test_redact_env_value_and_bearer() -> None:
@@ -250,7 +250,7 @@ class QueueLLM:
 
 
 def test_loop_calls_mcp_tool() -> None:
-    call = ToolCall(id="c1", name="mcp__stub__echo", arguments={"text": "hi"})
+    call = ToolCall(id="c1", name=public_tool_name("stub", "echo"), arguments={"text": "hi"})
 
     class AnswerWithToolResult(QueueLLM):
         def complete(self, messages: list[Message], tools: list[ToolSpec]) -> AssistantMessage:

@@ -19,7 +19,11 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import IO, Final, Literal
 
-SENSITIVE_ENV: Final = re.compile(r"KEY|PASSWORD|SECRET|TOKEN", re.IGNORECASE)
+SENSITIVE_ENV: Final = re.compile(
+    r"KEY|PASSWORD|SECRET|TOKEN|AUTH|CREDENTIAL|_(PAT|DSN|URI)$"
+    r"|^(SSH_AUTH_SOCK|DATABASE_URL|GOOGLE_APPLICATION_CREDENTIALS|KUBECONFIG)$",
+    re.IGNORECASE,
+)
 DEFAULT_MAX_OUTPUT_BYTES: Final = 64_000
 QUEUE_MAX: Final = 256
 READ_SIZE: Final = 65_536

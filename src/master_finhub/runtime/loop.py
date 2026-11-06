@@ -12,6 +12,8 @@ deepseek-harness
 
 from __future__ import annotations
 
+import inspect
+import json
 import math
 import threading
 from collections.abc import Callable
@@ -208,9 +210,20 @@ class AgentLoop:
         self._guard = guard
         self._context = context
         self._checkpoint = checkpoint
+        names = [t.spec.name for t in tools]
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            raise AgentLoopError(f"duplicate tool name(s): {', '.join(dupes)}")
         self._tools = {t.spec.name: t for t in tools}
         self._specs = [t.spec for t in tools]
         self._max_steps = max_steps
+        self._fit_takes_tools = (
+            context is not None and "tools_tokens" in inspect.signature(context.fit).parameters
+        )
+        self._tools_tokens = sum(
+            len(json.dumps([sp.name, sp.description, sp.parameters], default=str)) // 4 + 1
+            for sp in self._specs
+        )
         self._repeat = RepeatReminder()
 
     def run(self, prompt: str) -> str:
@@ -244,7 +257,12 @@ class AgentLoop:
                     "Raise max_steps or check the model is not looping on tool calls."
                 )
             if self._context is not None:
-                messages = self._context.fit(messages)
+                if self._fit_takes_tools:
+                    messages = self._context.fit(  # type: ignore[call-arg]
+                        messages, tools_tokens=self._tools_tokens
+                    )
+                else:
+                    messages = self._context.fit(messages)
             reply, messages = self._complete(messages)
             step += 1
             messages.append(Message("assistant", reply.content, tool_calls=tuple(reply.tool_calls)))
