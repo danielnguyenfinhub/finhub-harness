@@ -15,3 +15,6 @@ dist/
 .swarm/
 .agentic-qe/
 ruvector.db
+
+# Claude Code worker checkouts
+.claude/worktrees/
