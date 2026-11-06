@@ -215,6 +215,8 @@ Define a type in `.claude/agents/{name}.md`. When calling, specify `subagent_typ
 | Implementation that is reused or needs specialist rules | **Custom type** | Allow every tool needed and apply specialist guidelines. |
 | Editing several files in parallel | Custom type + `isolation: 'worktree'` | It prevents file-edit conflicts between agents. Creating a worktree has a cost, so use it only for parallel edits. |
 
+**Connector tools:** `general-purpose` and a custom agent with no `tools:` line hold every tool, connectors included. In a harness that can send, write a record, publish or pay, give each worker that does not send a `tools:` allowlist with no `mcp__<server>__*` tool, and let only the sending worker list them.
+
 **Principle:** Create a specialist role that will be reused across several sessions as a custom type in `.claude/agents/{name}.md`. Do not create a separate definition file for one-off work that uses a built-in type as it is.
 
 **Model policy:** Choose the model tier by the complexity of the work, the expected duration, the scope of judgment the agent must exercise on its own, and the response speed required. Use **fable** for the highest-difficulty work that must be planned and run autonomously over a long period, and for agent orchestration. Use **opus** for design and architecture, code generation, complex analysis, cross-verification, and creative writing. Use **sonnet** for structured work that needs little judgment, such as log analysis, format conversion, static file checks, running deploy scripts, and simple collection. If it is hard to decide, choose sonnet. Do not assign the same model to every agent without a reason, and leave the reason for your choice as a comment. Detailed criteria are in `model-selection-guide.md`.
@@ -227,6 +229,7 @@ name: agent-name
 description: "Describe the role in one or two sentences and list the phrasings that serve as trigger conditions."
 # tools: Read, Grep, Glob, Bash        ← optional: set when restricting the tools to use (read-only reviewers, etc.)
 #                                         for an agent that edits artifacts, include Edit along with Write
+#                                         a worker that does not send lists no mcp__<server>__* tool; only the sender does
 # model: sonnet                         ← choose to fit the nature of the work (model-selection-guide.md), and record the reason as a comment
 ---
 

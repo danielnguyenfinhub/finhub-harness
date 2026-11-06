@@ -76,6 +76,10 @@ def read(path: Path) -> str:
     return text
 
 
+def read_quiet(path: Path) -> str:
+    return path.read_bytes().decode("utf-8", errors="replace")
+
+
 def frontmatter(path: Path, text: str) -> dict[str, str] | None:
     """Parse the leading --- block into raw string values; None (and an error) if unusable."""
     lines = text.splitlines()
@@ -260,12 +264,36 @@ def check_explicit(path: Path, data: dict[str, str], text: str) -> None:
     """A skill that carries the Ask-first block can send, write, publish or pay, so a model
     must not start it unasked (RH28; adapted from
     references/repository_harness/tests/installer/assert-agent-authority-contract.sh:90 (MIT))."""
-    if not any(ASK_RE.match(line) for _, line in prose(text)):
+    if not has_ask_first(text):
         return
     if scalar(data.get("disable-model-invocation", "")).lower() != "true":
         msg = "skill has the Ask-first block but can be started by the model"
         msg += "; fix: add disable-model-invocation: true to the frontmatter"
         report("WARN", path, "send-implicit", msg)
+
+
+def has_ask_first(text: str) -> bool:
+    return any(ASK_RE.match(line) for _, line in prose(text))
+
+
+SENDER_RE = re.compile(r"approved list", re.IGNORECASE)  # the sending worker's file says this
+
+
+def check_connector_scope(path: Path, data: dict[str, str], text: str) -> None:
+    """In a harness whose orchestrator has the Ask-first block, only the sending worker may hold
+    connector tools. A worker with no `tools:` line inherits every tool, connectors included, and
+    one that lists `mcp__` tools can call them without the orchestrator's yes. The sender is the
+    agent whose prose says it works from an "approved list" (Step 3 wording); there is no
+    sturdier marker, because `## Required connectors` lines must stay bare server names."""
+    if SENDER_RE.search("\n".join(line for _, line in prose(text))):
+        return
+    tools, barred = data.get("tools", ""), data.get("disallowedTools", "")
+    if "mcp__" in barred or (tools and "mcp__" not in tools):
+        return
+    why = "has no tools: line, so it inherits connector tools" if not tools else "lists mcp__ tools"
+    msg = f"worker {why} but is not the sending worker"
+    msg += "; fix: give it a tools: allowlist without mcp__<server>__* tools; only the sender lists them"
+    report("WARN", path, "connector-tools-unscoped", msg)
 
 
 def check_pointer(path: Path) -> None:
@@ -322,6 +350,7 @@ def main(argv: list[str]) -> int:
     if not agents and not skills:
         report("ERROR", root, "empty", "no agents/*.md or skills/*/SKILL.md (pass the .claude dir)")
     today = datetime.now().astimezone().date()  # local calendar day
+    asks = any(has_ask_first(read_quiet(p)) for p in skills)
     names: set[str] = set()
     owners: dict[tuple[bool, str], list[Path]] = {}
     texts: dict[Path, str] = {}
@@ -340,6 +369,8 @@ def main(argv: list[str]) -> int:
             owners.setdefault((is_agent, name), []).append(path)
         if is_agent:
             names.add(name)
+            if asks:
+                check_connector_scope(path, data, text)
             if "model" not in data:
                 report("WARN", path, "model", "no model: field (choose one per agent)")
             elif "#" not in data["model"]:

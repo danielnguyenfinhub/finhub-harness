@@ -21,6 +21,10 @@ The owner sets the level for each kind of work; you never pick or change it.
 - **full** (`gated`): every judge round and QA check. Money, eligibility, compliance and client-facing text stay full unless the owner downgrades them through a ledger row.
 For standard or full, say so and use the full skill `finhub-harness`.
 
+## Outside effects
+
+If the job can send, write a record, publish, share or pay, ask the owner whether to use the full skill `finhub-harness`, or build it only with this rule written into the skill under `## Ask before an outside effect`: show every call with its exact arguments first; make a call only after the owner's explicit yes to that list, each once; a no, no answer or a change sends nothing. Set `disable-model-invocation: true` in that skill's frontmatter. A worker that does not send gets a `tools:` allowlist with no `mcp__` tools; only the sender lists them.
+
 ## Procedure (one pass)
 
 1. **Look cheaply.** List `.claude/agents` and `.claude/skills` and print only the `name:` lines (`ls`, `grep -m1 '^name:'`). Read a file only to extend it, and then only the lines you need. If something already covers the job, extend it; never add a second.
