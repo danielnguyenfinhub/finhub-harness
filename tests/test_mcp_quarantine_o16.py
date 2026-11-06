@@ -72,9 +72,14 @@ def test_existing_tools_stay_callable_after_a_refresh() -> None:
     assert tools["mcp__crm__update_record"].run({}) == "ran update_record"
 
 
-def test_new_read_only_tool_is_not_quarantined() -> None:
+def test_new_operator_trusted_tool_is_not_quarantined() -> None:
     client = FakeClient([*BASE, info("list_records", read_only=True)])
-    tools = {t.spec.name: t for t in mcp_tools(client, previous={"get_record", "update_record"})}
+    tools = {
+        t.spec.name: t
+        for t in mcp_tools(
+            client, previous={"get_record", "update_record"}, trusted_read_only={"list_records"}
+        )
+    }
     assert tools["mcp__crm__list_records"].run({}) == "ran list_records"
 
 
