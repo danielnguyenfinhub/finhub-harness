@@ -174,10 +174,20 @@ def _upsert(args: argparse.Namespace) -> int:
 CLAIM_COL = "_claimed_by"  # script-owned; added by the first claim, never by init
 
 
+def _add_column(con: sqlite3.Connection, quoted_table: str, column: str) -> None:
+    """Add a script-owned TEXT column. Another worker may add it between our check and our ALTER,
+    so a duplicate-column error means the column is there, which is all we wanted."""
+    try:
+        con.execute(f'ALTER TABLE {quoted_table} ADD COLUMN "{column}" TEXT')
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc):
+            raise
+
+
 def _claim_column(con: sqlite3.Connection, table: str) -> None:
     have = {r[1] for r in con.execute(f"PRAGMA table_info({_ident(table, 'table')})")}
     if CLAIM_COL not in have:
-        con.execute(f'ALTER TABLE {_ident(table, "table")} ADD COLUMN "{CLAIM_COL}" TEXT')
+        _add_column(con, _ident(table, "table"), CLAIM_COL)
 
 
 def _key_where(key: list[str], raw: str) -> tuple[str, list[object]]:
@@ -262,7 +272,7 @@ def _dead_column(con: sqlite3.Connection, table: str, add: bool = False) -> bool
     if DEAD_COL in {r[1] for r in con.execute(f"PRAGMA table_info({q})")}:
         return True
     if add:
-        con.execute(f'ALTER TABLE {q} ADD COLUMN "{DEAD_COL}" TEXT')
+        _add_column(con, q, DEAD_COL)
     return add
 
 

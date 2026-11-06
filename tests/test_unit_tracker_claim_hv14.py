@@ -146,3 +146,35 @@ def test_reference_documents_the_claim_rules_and_commands() -> None:
         "no sweep reclaims it",
     ):
         assert needle in text, f"the reference must carry {needle!r}"
+
+
+def _module():  # type: ignore[no-untyped-def]
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("unit_tracker_mod", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_adding_the_claim_column_twice_is_not_an_error() -> None:
+    import sqlite3
+
+    mod = _module()
+    con = sqlite3.connect(":memory:")
+    con.execute('CREATE TABLE "t" (k TEXT)')
+    mod._add_column(con, '"t"', "_claimed_by")
+    mod._add_column(con, '"t"', "_claimed_by")  # a second worker lost the race to add it
+    assert "_claimed_by" in {
+        r[1] for r in con.execute('PRAGMA table_info("t")')
+    }, "U9: first claims racing to add the column must not fail"
+
+
+def test_other_sql_errors_in_add_column_still_surface() -> None:
+    import sqlite3
+
+    mod = _module()
+    con = sqlite3.connect(":memory:")
+    with pytest.raises(sqlite3.OperationalError):
+        mod._add_column(con, '"missing"', "_claimed_by")
