@@ -14,6 +14,7 @@ never echoes the command.
 
 from __future__ import annotations
 
+import os
 import posixpath
 import re
 import shlex
@@ -31,6 +32,9 @@ MAX_COMMAND_CHARS: Final = 10_000
 MAX_GUARD_DEPTH: Final = 16
 MAX_DEPTH: Final = 3
 MAX_FUNC_NAMES: Final = 64
+MAX_BRACE_FORMS: Final = 64
+MAX_TRACKED_VARS: Final = 64
+UNDER_DIRS: Final = frozenset({"home", "usr", "var", "etc"})  # rm of a child of these is refused
 COMMAND_ARG_KEYS: Final = frozenset({"command", "cmd", "script", "shell_command"})
 # adapted from references/openharness/src/openharness/engine/query.py:1026 (MIT): file_path, path, root
 PATH_ARG_KEYS: Final = frozenset(
@@ -93,6 +97,17 @@ WIN_ENV_SYS_RE: Final = re.compile(
 ASSIGN_RE: Final = re.compile(r"[A-Za-z_]\w{0,63}=.*", re.DOTALL)
 CONTROL_RE: Final = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")  # all but \t \n \r
 PY_RE: Final = re.compile(r"python[\d.]*")
+VAR_RE: Final = re.compile(r"\$(\w+)|\$\{(\w+)\}")
+BRACE_RE: Final = re.compile(r"\{([^{}]*,[^{}]*)\}")
+ANSI_C_RE: Final = re.compile(r"\$'((?:[^'\\]|\\.)*)'", re.DOTALL)
+ANSI_ESC_RE: Final = re.compile(
+    r"\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|c.|.)", re.DOTALL
+)
+ANSI_SIMPLE: Final[Mapping[str, str]] = {
+    "a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f",
+    "n": "\n", "r": "\r", "t": "\t", "v": "\v", "\\": "\\", "'": "'", '"': '"', "?": "?",
+}  # fmt: skip
+ASSIGN_PREFIXES: Final = frozenset({"export", "declare", "local", "readonly", "typeset"})
 FUNC_RE: Final = re.compile(r"([A-Za-z_:][\w:-]{0,63})\(\)\{|function([A-Za-z_][\w-]{0,63})\{")
 WRAPPERS: Final = frozenset(
     [
@@ -194,6 +209,8 @@ class _State:
     depth: int
     sensitive: bool = True
     cwd_root: bool = False
+    cwd: str | None = None  # literal directory after `cd`; None until a literal `cd`
+    vars: dict[str, str] = field(default_factory=dict)  # NAME=literal set earlier in the command
     downloaded: set[str] = field(default_factory=set)
 
 
@@ -209,7 +226,7 @@ def is_interpreter(name: str) -> bool:
     return name in INTERPRETERS or PY_RE.fullmatch(name) is not None
 
 
-def dangerous_target(arg: str, cwd_root: bool) -> bool:
+def dangerous_target(arg: str, cwd_root: bool, under: bool = False) -> bool:
     a = arg.strip()
     if not a:
         return False
@@ -229,8 +246,17 @@ def dangerous_target(arg: str, cwd_root: bool) -> bool:
         if p == "/":
             return True
         parts = p.strip("/").split("/")
-        return len(parts) == 1 and parts[0] in SYSTEM_DIRS
+        if len(parts) == 1 and parts[0] in SYSTEM_DIRS:
+            return True
+        # under: a child of /home, /usr, /var or /etc, or the user's home itself
+        return under and (
+            (len(parts) == 2 and parts[0] in UNDER_DIRS) or p == posixpath.normpath(_home())
+        )
     return False
+
+
+def _home() -> str:
+    return os.path.expanduser("~")
 
 
 def recursive_flag(name: str, args: list[str]) -> bool:
@@ -332,23 +358,113 @@ def _pathish(word: str) -> bool:
     return "/" in word or "\\" in word or word.startswith(("~", ".", "$"))
 
 
-def _sensitive_word_rule(words: list[str]) -> str | None:
-    """OH31: every raw word, before strip_wrappers, so VAR=~/.x and wrapper flag values count."""
+def _subst(word: str, names: Mapping[str, str]) -> str:
+    """Replace $NAME and ${NAME} that were set to a literal earlier in the same command."""
+    if not names or "$" not in word:
+        return word
+    return VAR_RE.sub(lambda m: names.get(m.group(1) or m.group(2), m.group(0)), word)
+
+
+class _TooManyForms(Exception):
+    pass
+
+
+def _braces(word: str) -> list[str]:
+    """Comma brace expansion of one word, innermost first, at most MAX_BRACE_FORMS results."""
+    forms = [word]
+    for _ in range(MAX_BRACE_FORMS):
+        out: list[str] = []
+        changed = False
+        for f in forms:
+            m = BRACE_RE.search(f)
+            if m is None:
+                out.append(f)
+                continue
+            changed = True
+            out.extend(f[: m.start()] + alt + f[m.end() :] for alt in m.group(1).split(","))
+            if len(out) > MAX_BRACE_FORMS:
+                raise _TooManyForms
+        forms = out
+        if not changed:
+            break
+    return forms
+
+
+def _exists(path: str) -> bool:
+    try:
+        os.lstat(path)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _word_forms(word: str, state: _State) -> list[str]:
+    """What the shell may turn one raw word into: known variables replaced, braces expanded, and
+    (after a literal `cd`) the same relative word under the new directory."""
+    w = _subst(word, state.vars)
+    forms = _braces(w) if "{" in w and "," in w else [w]
+    if state.cwd is not None:
+        forms += [posixpath.join(state.cwd, f) for f in forms if not f.startswith(("/", "~", "$"))]
+    return forms
+
+
+def _sensitive_word_rule(words: list[str], state: _State) -> str | None:
+    """OH31: every raw word, before strip_wrappers, so VAR=~/.x and wrapper flag values count.
+    A bare word is walked too when a file of that name exists (a symlink alias)."""
     scan = _sp.current_scan() or _sp.Scan()
     for w in words:
-        if w not in scan.cmd:
-            scan.cmd[w] = _sp.sensitive_rule(w, resolve=_pathish(w), max_chars=MAX_COMMAND_CHARS)
-        if scan.cmd[w] is not None:
-            return scan.cmd[w]
+        try:
+            forms = _word_forms(w, state)
+        except _TooManyForms:
+            return "check-failed"
+        for f in forms:
+            if f not in scan.cmd:
+                scan.cmd[f] = _sp.sensitive_rule(
+                    f, resolve=_pathish(f) or _exists(f), max_chars=MAX_COMMAND_CHARS
+                )
+            if scan.cmd[f] is not None:
+                return scan.cmd[f]
     return None
+
+
+def _track(words: list[str], core: list[str], state: _State) -> None:
+    """Remember NAME=literal assignments and literal `cd` targets for the words that follow."""
+    for w in words:
+        if ASSIGN_RE.fullmatch(w):
+            key, _, val = w.partition("=")
+            val = _subst(val, state.vars)
+            if (
+                "$" in val
+                or "`" in val
+                or (key not in state.vars and len(state.vars) >= MAX_TRACKED_VARS)
+            ):
+                state.vars.pop(key, None)
+            else:
+                state.vars[key] = val
+        elif w not in ASSIGN_PREFIXES and not w.startswith("-"):
+            break
+    if core and cmd_name(core[0]) == "cd":
+        args = [_subst(a, state.vars) for a in core[1:]]
+        target = [a for a in args if not a.startswith("-")]
+        if args and not target:
+            return  # `cd -` and the like: keep the last known directory
+        t = os.path.expanduser(target[0]) if target else _home()
+        if any(c in t for c in "$`*?[{") or not t:
+            return  # not literal: later words are still checked as written
+        new = posixpath.normpath(
+            t if t.startswith("/") or state.cwd is None else posixpath.join(state.cwd, t)
+        )
+        if len(new) <= _sp.PATH_MAX_CHARS:
+            state.cwd = new
 
 
 def segment_rule(words: list[str], state: _State) -> str | None:
     if state.sensitive:
-        hit = _sensitive_word_rule(words)
+        hit = _sensitive_word_rule(words, state)
         if hit:
             return hit
     core = strip_wrappers(words)
+    _track(words, core, state)
     if not core:
         return None
     if core[0].startswith(("$", "`")):
@@ -356,26 +472,26 @@ def segment_rule(words: list[str], state: _State) -> str | None:
     name, args = cmd_name(core[0]), core[1:]
     positional = [a for a in args if not a.startswith("-") and a.lower() not in ("/s", "/q")]
     if name == "cd":
-        state.cwd_root = bool(args) and dangerous_target(args[0], False)
+        state.cwd_root = bool(args) and dangerous_target(args[0], False, True)
         return None
     if name in DELETERS:
         if "--no-preserve-root" in args:
             return "rm-no-preserve-root"
         if recursive_flag(name, args) and any(
-            dangerous_target(a, state.cwd_root) for a in positional
+            dangerous_target(a, state.cwd_root, True) for a in positional
         ):
             return "recursive-delete-root"
     if (
         name in PERMS
         and recursive_flag(name, args)
-        and any(dangerous_target(a, state.cwd_root) for a in positional)
+        and any(dangerous_target(a, state.cwd_root, True) for a in positional)
     ):
         return "recursive-perms-root"
     deletes = "-delete" in args or (
         "-exec" in args and any(cmd_name(a) in ("rm", "shred") for a in args)
     )
     find_start_bad = (
-        not args or args[0].startswith("-") or dangerous_target(args[0], state.cwd_root)
+        not args or args[0].startswith("-") or dangerous_target(args[0], state.cwd_root, True)
     )
     if name == "find" and deletes and find_start_bad:
         return "find-delete-root"
@@ -611,7 +727,39 @@ def _check(command: str, depth: int = 0, sensitive: bool = True) -> str | None:
     return _check_inner(command, depth, sensitive)
 
 
+def _ansi_char(m: re.Match[str]) -> str:
+    e = m.group(1)
+    c = e[0]
+    try:
+        if c in "xuU" and len(e) > 1:
+            return chr(int(e[1:], 16))
+        if c in "01234567":
+            return chr(int(e, 8) & 0xFF)
+    except ValueError:
+        return "\x00"  # out of range: a control byte makes the checker refuse the command
+    if c == "c" and len(e) == 2:
+        return chr(ord(e[1]) & 0x1F)
+    return ANSI_SIMPLE.get(c, "\\" + e)
+
+
+def _ansi_c(command: str) -> str:
+    """Replace each $'...' string with the single-quoted text bash would produce from it."""
+    return ANSI_C_RE.sub(
+        lambda m: "'" + ANSI_ESC_RE.sub(_ansi_char, m.group(1)).replace("'", "'\\''") + "'",
+        command,
+    )
+
+
 def _check_inner(command: str, depth: int, sensitive: bool) -> str | None:
+    rule = _check_text(command, depth, sensitive)
+    if rule is None and "$'" in command and len(command) <= MAX_COMMAND_CHARS:
+        decoded = _ansi_c(command)  # union: the text as written, and with $'..' decoded
+        if decoded != command:
+            return _check_text(decoded, depth, sensitive)
+    return rule
+
+
+def _check_text(command: str, depth: int, sensitive: bool) -> str | None:
     if depth > MAX_DEPTH:
         return "nesting-too-deep"
     if len(command) > MAX_COMMAND_CHARS:
