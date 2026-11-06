@@ -10,11 +10,11 @@ Usage, run from the project root:
   unit_tracker.py deadletter DB --table T --reason TEXT
   (upsert also takes --worker W: the write is refused unless W holds the claim on that unit)
   `deadletter` records every unit still open as failed, once; `pending` and `status` then leave
-  those units out and `status` prints FAILED. Rules C1-C5 in the reference describe the loop that
+  those units out, `claim` never hands them out, and `status` prints FAILED. Rules C1-C5 in the reference describe the loop that
   uses it (adapted from references/hive/core/framework/host/playbook/runner.py:57 and :305
   (Apache-2.0), ideas only).
 Exit 0 ok; 3 `pending` found no unit left, or `claim` found none unclaimed (the job has converged);
-4 a claim or release was not granted (not-found, already-done, owned-by-other, not-held);
+4 a claim or release was not granted (not-found, already-done, dead-lettered, owned-by-other, not-held);
 2 usage error or a refused write.
 A claim is one guarded UPDATE inside a locked transaction, so two workers never both get a unit
 (rules U9-U11 in the reference; adapted from
@@ -202,7 +202,7 @@ def _key_where(key: list[str], raw: str) -> tuple[str, list[object]]:
 
 def _claim(args: argparse.Namespace) -> int:
     """One guarded UPDATE decides who owns a unit; select-then-update would let two workers win.
-    Outcomes are typed: ok, none-left, not-found, already-done, owned-by-other."""
+    Outcomes are typed: ok, none-left, not-found, already-done, dead-lettered, owned-by-other."""
     con = _open(args.db, create=False)
     key, _, done = _registered(con, args.table)
     q, d = _ident(args.table, "table"), _ident(done, "column")
@@ -210,7 +210,8 @@ def _claim(args: argparse.Namespace) -> int:
         raise Refused("claim needs SQLite 3.35 or newer (UPDATE ... RETURNING)")
     _claim_column(con, args.table)
     con.row_factory = sqlite3.Row
-    guard = f'{d} IS NULL AND ("{CLAIM_COL}" IS NULL OR "{CLAIM_COL}" = ?)'
+    live = _open_where(con, args.table, done)  # not done and not dead-lettered
+    guard = f'{live} AND ("{CLAIM_COL}" IS NULL OR "{CLAIM_COL}" = ?)'
     if args.key:
         where, vals = _key_where(key, args.key)
         sql = f'UPDATE {q} SET "{CLAIM_COL}" = ? WHERE {where} AND {guard} RETURNING *'
@@ -218,7 +219,7 @@ def _claim(args: argparse.Namespace) -> int:
     else:  # the next unit nobody holds; the guard still decides, so a lost race finds the next one
         sql = (
             f'UPDATE {q} SET "{CLAIM_COL}" = ? WHERE rowid = (SELECT rowid FROM {q} '
-            f'WHERE {d} IS NULL AND "{CLAIM_COL}" IS NULL ORDER BY rowid LIMIT 1) '
+            f'WHERE {live} AND "{CLAIM_COL}" IS NULL ORDER BY rowid LIMIT 1) '
             f"AND {guard} RETURNING *"
         )
         params = [args.worker, args.worker]
@@ -232,7 +233,7 @@ def _claim(args: argparse.Namespace) -> int:
             break
         if (
             con.execute(
-                f'SELECT 1 FROM {q} WHERE {d} IS NULL AND "{CLAIM_COL}" IS NULL LIMIT 1'
+                f'SELECT 1 FROM {q} WHERE {live} AND "{CLAIM_COL}" IS NULL LIMIT 1'
             ).fetchone()
             is None
         ):
@@ -241,9 +242,16 @@ def _claim(args: argparse.Namespace) -> int:
     if not args.key:
         print("CLAIM: owned-by-other")
         return 4
-    row = con.execute(f'SELECT {d}, "{CLAIM_COL}" FROM {q} WHERE {where}', vals).fetchone()
+    dead = f'"{DEAD_COL}"' if _dead_column(con, args.table) else "NULL"
+    row = con.execute(f"SELECT {d}, {dead} FROM {q} WHERE {where}", vals).fetchone()
     outcome = (
-        "not-found" if row is None else "already-done" if row[0] is not None else "owned-by-other"
+        "not-found"
+        if row is None
+        else (
+            "already-done"
+            if row[0] is not None
+            else "dead-lettered" if row[1] is not None else "owned-by-other"
+        )
     )
     print(f"CLAIM: {outcome}")
     return 4

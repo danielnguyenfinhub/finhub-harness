@@ -41,7 +41,7 @@ Example, with synthetic names: `init DB --table sweep --key lender --cols rate,n
 | U7 | Only tables made by `init` accept writes. Names must be letters, digits and underscores starting with a letter, so the script's own table (`_unit_registry`) and any name with SQL in it are refused. |
 | U8 | A table cannot be redefined by a later `init` with a different key, columns or done column, and a read command on a missing file does not create one. |
 | U9 | A claim is one guarded UPDATE: the unit is taken only if it is undone and nobody else holds it. Two workers never get the same unit, and a worker that loses the race gets the next one or `none-left` (exit 3). Never read a unit and write it as two steps. |
-| U10 | A claim answers with a typed outcome: `ok`, `none-left`, `not-found`, `already-done` or `owned-by-other`. Claiming a unit you already hold is `ok`. Only the holder releases a unit. A released unit can be claimed again. |
+| U10 | A claim answers with a typed outcome: `ok`, `none-left`, `not-found`, `already-done`, `dead-lettered` or `owned-by-other`. A dead-lettered unit (C3) is never handed out by `claim`: with only such units left, `claim` is `none-left`, and `claim --key` on one is `dead-lettered` (exit 4). Claiming a unit you already hold is `ok`. Only the holder releases a unit. A released unit can be claimed again. |
 | U11 | `upsert --worker W` is refused unless W holds the claim, so a worker whose claim was released or never made cannot write. Without `--worker` an upsert behaves as before. The claim is kept in the script-owned column `_claimed_by`, added by the first `claim`. |
 
 ## 3a. The convergence loop (rules C1-C5)
