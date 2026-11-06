@@ -109,6 +109,8 @@ Give each item you leave out one line of the report, `NOT CAPTURED: <environment
 
    One change per lesson: a change that needs a second file is a second lesson. `baseline:` is a line of a run you opened (Phase 1 step 6), at the first point where that run went wrong, not a later error it caused (Phase 2 takes the earlier layer for the same reason). When no run artefact shows the failure, write `none observed`; never make a baseline up. (adapted from references/repository_harness/.agents/skills/improve-harness/SKILL.md:61-68 (MIT); adapted from references/repository_harness/.agents/skills/improve-harness/SKILL.md:23-35 (MIT); the first failing step rather than its consequences, adapted from references/paperclip/.agents/skills/fix-failed-paperclip-run/SKILL.md:60-65 (MIT))
 
+8. **Show the diff and get a yes for each target.** Before the first edit to a skill, agent definition, orchestrator or `CLAUDE.md`, show the user the exact change as a fenced diff or as lines starting with `+` and `-`, name the one file it changes, and wait for an explicit yes to that file. A yes that came before the diff was shown does not count. One yes covers one file: a second file needs its own diff and its own yes, and a yes given earlier in the conversation for another file is not reused. With no answer, or a no, edit nothing, keep the `LESSON` line and the proposed text in the report, and say that nothing was applied. The Phase 3 backup gate runs after the yes and before the edit. (adapted from references/paperclip/server/src/services/change-consent-gate.ts:14, :48 and :117 (MIT, Paperclip AI), idea only)
+
 ### Phase 4: Update the change history and verify
 
 1. Record the change in the **change history** table of CLAUDE.md:
