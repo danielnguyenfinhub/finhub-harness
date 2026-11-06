@@ -5,7 +5,21 @@ Usage, run from the project root:
   unit_tracker.py upsert DB --table T --row JSON
   unit_tracker.py pending DB --table T [--limit N]
   unit_tracker.py status DB --table T
-Exit 0 ok; 3 `pending` found no unit left (the job has converged); 2 usage error or a refused write.
+  unit_tracker.py claim DB --table T --worker W [--key JSON]
+  unit_tracker.py release DB --table T --worker W --key JSON
+  unit_tracker.py deadletter DB --table T --reason TEXT
+  (upsert also takes --worker W: the write is refused unless W holds the claim on that unit)
+  `deadletter` records every unit still open as failed, once; `pending` and `status` then leave
+  those units out and `status` prints FAILED. Rules C1-C5 in the reference describe the loop that
+  uses it (adapted from references/hive/core/framework/host/playbook/runner.py:57 and :305
+  (Apache-2.0), ideas only).
+Exit 0 ok; 3 `pending` found no unit left, or `claim` found none unclaimed (the job has converged);
+4 a claim or release was not granted (not-found, already-done, owned-by-other, not-held);
+2 usage error or a refused write.
+A claim is one guarded UPDATE inside a locked transaction, so two workers never both get a unit
+(rules U9-U11 in the reference; adapted from
+references/hive/core/framework/skills/_default_skills/colony-progress-tracker/SKILL.md:16 and :32
+and references/hive/core/framework/tasks/store.py:806 (Apache-2.0), ideas only).
 
 A unit is a row. The done column is NULL until the unit is complete; any value in it means done,
 and an upsert that sets it back to null reopens the unit. "What is left" is a fresh query of the
@@ -129,6 +143,14 @@ def _upsert(args: argparse.Namespace) -> int:
     missing = [k for k in key if k not in row]
     if missing:
         raise Refused(f"row is missing key columns {missing}")
+    if args.worker is not None:  # a worker whose claim was revoked or never made cannot write
+        _claim_column(con, args.table)
+        where, kv = _key_where(key, json.dumps({k: row[k] for k in key}))
+        held = con.execute(
+            f'SELECT "{CLAIM_COL}" FROM {_ident(args.table, "table")} WHERE {where}', kv
+        ).fetchone()
+        if held is None or held[0] != args.worker:
+            raise Refused(f"claim on this unit is not held by {args.worker!r}; claim it first")
     names = list(row)
     vals = [json.dumps(v) if isinstance(v, (list, dict)) else v for v in row.values()]
     marks = ", ".join("?" * len(names))
@@ -149,23 +171,142 @@ def _upsert(args: argparse.Namespace) -> int:
     return 0
 
 
-def _counts(con: sqlite3.Connection, table: str, done: str) -> tuple[int, int]:
-    q, d = _ident(table, "table"), _ident(done, "column")
-    total, left = con.execute(f"SELECT COUNT(*), COALESCE(SUM({d} IS NULL), 0) FROM {q}").fetchone()
-    return total, left
+CLAIM_COL = "_claimed_by"  # script-owned; added by the first claim, never by init
+
+
+def _add_column(con: sqlite3.Connection, quoted_table: str, column: str) -> None:
+    """Add a script-owned TEXT column. Another worker may add it between our check and our ALTER,
+    so a duplicate-column error means the column is there, which is all we wanted."""
+    try:
+        con.execute(f'ALTER TABLE {quoted_table} ADD COLUMN "{column}" TEXT')
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc):
+            raise
+
+
+def _claim_column(con: sqlite3.Connection, table: str) -> None:
+    have = {r[1] for r in con.execute(f"PRAGMA table_info({_ident(table, 'table')})")}
+    if CLAIM_COL not in have:
+        _add_column(con, _ident(table, "table"), CLAIM_COL)
+
+
+def _key_where(key: list[str], raw: str) -> tuple[str, list[object]]:
+    try:
+        want = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise Refused(f"--key is not JSON: {exc}") from exc
+    if not isinstance(want, dict) or sorted(want) != sorted(key):
+        raise Refused(f"--key must be a JSON object with exactly the key columns {sorted(key)}")
+    return " AND ".join(f'{_ident(k, "column")} = ?' for k in key), [want[k] for k in key]
+
+
+def _claim(args: argparse.Namespace) -> int:
+    """One guarded UPDATE decides who owns a unit; select-then-update would let two workers win.
+    Outcomes are typed: ok, none-left, not-found, already-done, owned-by-other."""
+    con = _open(args.db, create=False)
+    key, _, done = _registered(con, args.table)
+    q, d = _ident(args.table, "table"), _ident(done, "column")
+    if sqlite3.sqlite_version_info < (3, 35):
+        raise Refused("claim needs SQLite 3.35 or newer (UPDATE ... RETURNING)")
+    _claim_column(con, args.table)
+    con.row_factory = sqlite3.Row
+    guard = f'{d} IS NULL AND ("{CLAIM_COL}" IS NULL OR "{CLAIM_COL}" = ?)'
+    if args.key:
+        where, vals = _key_where(key, args.key)
+        sql = f'UPDATE {q} SET "{CLAIM_COL}" = ? WHERE {where} AND {guard} RETURNING *'
+        params: list[object] = [args.worker, *vals, args.worker]
+    else:  # the next unit nobody holds; the guard still decides, so a lost race finds the next one
+        sql = (
+            f'UPDATE {q} SET "{CLAIM_COL}" = ? WHERE rowid = (SELECT rowid FROM {q} '
+            f'WHERE {d} IS NULL AND "{CLAIM_COL}" IS NULL ORDER BY rowid LIMIT 1) '
+            f"AND {guard} RETURNING *"
+        )
+        params = [args.worker, args.worker]
+    for _ in range(50):  # a lost race (another worker took the unit between the pick and the write)
+        won = con.execute(sql, params).fetchall()
+        con.commit()
+        if won:
+            print("CLAIM: ok " + json.dumps(dict(won[0]), sort_keys=True))
+            return 0
+        if args.key:
+            break
+        if (
+            con.execute(
+                f'SELECT 1 FROM {q} WHERE {d} IS NULL AND "{CLAIM_COL}" IS NULL LIMIT 1'
+            ).fetchone()
+            is None
+        ):
+            print("CLAIM: none-left")
+            return 3
+    if not args.key:
+        print("CLAIM: owned-by-other")
+        return 4
+    row = con.execute(f'SELECT {d}, "{CLAIM_COL}" FROM {q} WHERE {where}', vals).fetchone()
+    outcome = (
+        "not-found" if row is None else "already-done" if row[0] is not None else "owned-by-other"
+    )
+    print(f"CLAIM: {outcome}")
+    return 4
+
+
+def _release(args: argparse.Namespace) -> int:
+    con = _open(args.db, create=False)
+    key, _, done = _registered(con, args.table)
+    _claim_column(con, args.table)
+    where, vals = _key_where(key, args.key)
+    with con:
+        changed = con.execute(
+            f'UPDATE {_ident(args.table, "table")} SET "{CLAIM_COL}" = NULL '
+            f'WHERE {where} AND "{CLAIM_COL}" = ? AND {_ident(done, "column")} IS NULL',
+            (*vals, args.worker),
+        ).rowcount
+    print("RELEASE: " + ("ok" if changed else "not-held"))
+    return 0 if changed else 4
+
+
+DEAD_COL = "_failed"  # script-owned; holds the reason; added by the first deadletter
+
+
+def _dead_column(con: sqlite3.Connection, table: str, add: bool = False) -> bool:
+    q = _ident(table, "table")
+    if DEAD_COL in {r[1] for r in con.execute(f"PRAGMA table_info({q})")}:
+        return True
+    if add:
+        _add_column(con, q, DEAD_COL)
+    return add
+
+
+def _open_where(con: sqlite3.Connection, table: str, done: str) -> str:
+    """A unit is open while its done column is NULL and it has not been dead-lettered."""
+    where = f"{_ident(done, 'column')} IS NULL"
+    return where + (f' AND "{DEAD_COL}" IS NULL' if _dead_column(con, table) else "")
+
+
+def _counts(con: sqlite3.Connection, table: str, done: str) -> tuple[int, int, int]:
+    """(total, open, dead-lettered)."""
+    q = _ident(table, "table")
+    total = con.execute(f"SELECT COUNT(*) FROM {q}").fetchone()[0]
+    left = con.execute(
+        f"SELECT COUNT(*) FROM {q} WHERE {_open_where(con, table, done)}"
+    ).fetchone()[0]
+    dead = 0
+    if _dead_column(con, table):
+        dead = con.execute(f'SELECT COUNT(*) FROM {q} WHERE "{DEAD_COL}" IS NOT NULL').fetchone()[0]
+    return total, left, dead
 
 
 def _pending(args: argparse.Namespace) -> int:
     con = _open(args.db, create=False)
     _, _, done = _registered(con, args.table)
     con.row_factory = sqlite3.Row
-    sql = f"SELECT * FROM {_ident(args.table, 'table')} WHERE {_ident(done, 'column')} IS NULL ORDER BY rowid"
+    where = _open_where(con, args.table, done)
+    sql = f"SELECT * FROM {_ident(args.table, 'table')} WHERE {where} ORDER BY rowid"
     rows = con.execute(
         sql + (" LIMIT ?" if args.limit else ""), (args.limit,) if args.limit else ()
     ).fetchall()
     for r in rows:
         print(json.dumps(dict(r), sort_keys=True))
-    _, left = _counts(con, args.table, done)
+    left = _counts(con, args.table, done)[1]
     print(f"PENDING: {left}")
     return 0 if left else 3
 
@@ -173,16 +314,41 @@ def _pending(args: argparse.Namespace) -> int:
 def _status(args: argparse.Namespace) -> int:
     con = _open(args.db, create=False)
     _, _, done = _registered(con, args.table)
-    total, left = _counts(con, args.table, done)
-    print(f"TABLE: {args.table}\nTOTAL: {total}\nDONE: {total - left}\nPENDING: {left}")
+    total, left, dead = _counts(con, args.table, done)
+    print(f"TABLE: {args.table}\nTOTAL: {total}\nDONE: {total - left - dead}\nPENDING: {left}")
+    if dead:
+        print(f"FAILED: {dead}")
     print("STATE: " + ("converged" if total and not left else "open"))
     return 0
+
+
+def _deadletter(args: argparse.Namespace) -> int:
+    """Record every unit still open as failed, once. A unit already recorded is not touched again,
+    so the same leftover rows are never listed twice (exit 3 when there is nothing to record)."""
+    con = _open(args.db, create=False)
+    _, _, done = _registered(con, args.table)
+    if sqlite3.sqlite_version_info < (3, 35):
+        raise Refused("deadletter needs SQLite 3.35 or newer (UPDATE ... RETURNING)")
+    if not args.reason.strip():
+        raise Refused("--reason must say why these units were given up on")
+    _dead_column(con, args.table, add=True)
+    con.row_factory = sqlite3.Row
+    with con:
+        rows = con.execute(
+            f'UPDATE {_ident(args.table, "table")} SET "{DEAD_COL}" = ? '
+            f"WHERE {_open_where(con, args.table, done)} RETURNING *",
+            (args.reason,),
+        ).fetchall()
+    for line in sorted(json.dumps(dict(r), sort_keys=True) for r in rows):
+        print("DEAD: " + line)
+    print(f"DEAD-LETTERED: {len(rows)}")
+    return 0 if rows else 3
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="unit_tracker.py", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("init", "upsert", "pending", "status"):
+    for name in ("init", "upsert", "pending", "status", "claim", "release", "deadletter"):
         p = sub.add_parser(name)
         p.add_argument("db")
         p.add_argument("--table", required=True)
@@ -193,13 +359,26 @@ def main(argv: list[str]) -> int:
             p.add_argument("--seed")
         if name == "upsert":
             p.add_argument("--row", required=True)
+            p.add_argument("--worker")
         if name == "pending":
             p.add_argument("--limit", type=int, default=0)
+        if name in ("claim", "release"):
+            p.add_argument("--worker", required=True)
+            p.add_argument("--key", required=name == "release")
+        if name == "deadletter":
+            p.add_argument("--reason", required=True)
     args = ap.parse_args(argv)
+    handlers = {
+        "init": _init,
+        "upsert": _upsert,
+        "pending": _pending,
+        "status": _status,
+        "claim": _claim,
+        "release": _release,
+        "deadletter": _deadletter,
+    }
     try:
-        return {"init": _init, "upsert": _upsert, "pending": _pending, "status": _status}[args.cmd](
-            args
-        )
+        return handlers[args.cmd](args)
     except (Refused, sqlite3.Error, OSError) as exc:
         print(f"REFUSED: {exc}")
         return 2
