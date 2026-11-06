@@ -248,4 +248,5 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - Naming the tree a verdict judged, and refusing a stale verdict: `references/quality-gates.md` §3-7 and `scripts/candidate_id.py` (adapted from references/openrig/scripts/gate-lane-consume.mjs:23-25 (Apache-2.0))
 - Checking that each `references/<sub>/<path>:<line>` cite exists at the pinned commit and is in range: `references/quality-gates.md` §1-4 and `scripts/cite_check.py` (adapted from references/repository_harness (MIT); the source lines are named in §1-4)
 - Parallel writers, the ownership ladder and honest labels: `references/write-safety.md` (adapted from references/meta_harness/.agents/skills/harness/SKILL.md:133 (Apache-2.0))
+- Updating installed harness files from a new version without overwriting edits (plan against a stored baseline, stage conflicts, edit nothing; rules R1-R6): `references/safe-update.md` and `scripts/safe_update.py` (adapted from references/repository_harness/crates/harness/src/application/service.rs:516 (MIT, Hoang Nguyen), idea only)
 - Borrowing from other harness repos under licence rules: `references/source-enrichment.md`
