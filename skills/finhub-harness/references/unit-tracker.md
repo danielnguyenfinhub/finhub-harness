@@ -17,7 +17,7 @@ Run from the project root. `DB` is a file path such as `_workspace/units.db`.
 | `init DB --table T --key a[,b] --cols c,d --done COL [--seed FILE\|-]` | Makes the table and registers it. `--seed` adds one pending row per line (tab-separated for a multi-column key). Safe to run again. |
 | `upsert DB --table T --row JSON` | Writes one row by key. Setting the done column marks the unit done; setting it to null reopens it. |
 | `pending DB --table T [--limit N]` | Prints each undone row as a JSON line, then `PENDING: n`. Exit 3 when none is left. |
-| `status DB --table T` | Prints `TOTAL`, `DONE`, `PENDING` and `STATE: open` or `converged`. |
+| `status DB --table T` | Prints `TOTAL`, `DONE`, `PENDING` (and `FAILED` when a unit was dead-lettered) and `STATE: open`, `converged` (every unit done) or `stopped-with-failures` (nothing open, some unit given up on). |
 | `claim DB --table T --worker W [--key JSON]` | Takes the next unit nobody holds, or the unit named by `--key` (a JSON object with exactly the key columns). Prints `CLAIM: ok <row>` or a typed outcome. A dead-lettered unit is never claimable (`CLAIM: dead-lettered` for `--key`). |
 | `release DB --table T --worker W --key JSON` | Gives a unit back; only its holder can. Prints `RELEASE: ok` or `RELEASE: not-held`. |
 | `deadletter DB --table T --reason TEXT` | Records every unit still open as failed, with the reason, once. Prints each as `DEAD: <row>` and `DEAD-LETTERED: n`; exit 3 when there was nothing to record. `pending` and `status` then leave those units out, and `status` prints `FAILED: n`. A dead unit is final: it is not claimable and not writable (`upsert` answers `UPSERT: dead-lettered`, exit 4). |
@@ -37,7 +37,7 @@ Example, with synthetic names: `init DB --table sweep --key lender --cols rate,n
 | U3 | `pending` lists only undone rows, and exits 3 when none is left. The answer is a fresh query each time. |
 | U4 | `upsert` is idempotent on the key columns: the same key written twice is one row and the last write wins. A re-dispatched worker cannot create a duplicate. |
 | U5 | Setting the done column to null reopens the unit. This is how a row that failed a check is cleared and sent back. |
-| U6 | A write may carry only the registered key, `--cols` and done columns, and must carry every key column. Lists and objects are stored as JSON text. |
+| U6 | A write may carry only the registered key, `--cols` and done columns, and must carry every key column. Lists and objects are stored as JSON text. Key values are always stored and matched as text, so the number 1 and the string "1" name one unit. |
 | U7 | Only tables made by `init` accept writes. Names must be letters, digits and underscores starting with a letter, so the script's own table (`_unit_registry`) and any name with SQL in it are refused. |
 | U8 | A table cannot be redefined by a later `init` with a different key, columns or done column, and a read command on a missing file does not create one. |
 | U9 | A claim is one guarded UPDATE: the unit is taken only if it is undone and nobody else holds it. Two workers never get the same unit, and a worker that loses the race gets the next one or `none-left` (exit 3). Never read a unit and write it as two steps. |
