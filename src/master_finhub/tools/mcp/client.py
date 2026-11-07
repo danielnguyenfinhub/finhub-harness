@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final, Self
 
 from master_finhub.runtime.loop import ToolSpec
-from master_finhub.sandbox.stream import scrubbed_env
+from master_finhub.sandbox.stream import _kill_group, scrubbed_env
 from master_finhub.tools.safety import check_command
 from master_finhub.tools.secret_scan import Span, apply_spans, merge_spans, secret_spans
 
@@ -52,6 +52,7 @@ MAX_CATALOGUE_CHARS: Final = 400_000  # descriptions + serialized schemas of one
 SERVER_REPLY_TIMEOUT_S: Final = 5.0  # reply to a server-initiated request; expiry kills the child
 SHOWN_NAME_CHARS: Final = 80  # most of a server-supplied name shown in any message
 MAX_RPC_ID_CHARS: Final = 128
+MAX_CURSOR_CHARS: Final = 4096  # a longer nextCursor is refused
 SPEC_TIMEOUT_MARGIN_S: Final = 5.0
 TRUNCATED_MARK: Final = "...[truncated]"
 PUBLIC_MAX: Final = 64
@@ -201,6 +202,7 @@ class McpClient:
                 bufsize=1,
                 env=scrubbed_env(self._server.env),
                 cwd=self._server.cwd,
+                start_new_session=True,  # own process group: close() kills grandchildren too
             )
         except OSError:
             raise McpError(f"could not start MCP server '{self._server.name}'") from None
@@ -238,13 +240,13 @@ class McpClient:
                     return
                 if len(line) > MAX_LINE_CHARS and not line.endswith("\n"):
                     self._fail("server line too long")
-                    proc.kill()  # it may be blocked writing the rest; do not wait for it
+                    _kill_group(proc)  # it may be blocked writing the rest; do not wait for it
                     return
                 if not self._dispatch(line, proc):
                     return
         except Exception as exc:  # noqa: BLE001 - reader crash must never leave waiters hanging
             self._fail(f"MCP reader failed: {type(exc).__name__}")
-            proc.kill()  # RecursionError included: nobody reads its stdout any more
+            _kill_group(proc)  # RecursionError included: nobody reads its stdout any more
 
     def _dispatch(self, line: str, proc: subprocess.Popen[str]) -> bool:
         try:
@@ -259,7 +261,7 @@ class McpClient:
             self._server_requests += 1
             if self._server_requests > MAX_SERVER_REQUESTS:
                 self._fail("too many server requests")
-                proc.kill()
+                _kill_group(proc)
                 return False
             req_id = msg["id"]
             if isinstance(req_id, bool) or not (
@@ -328,7 +330,7 @@ class McpClient:
             t.join(timeout)
             if t.is_alive():
                 self._fail("MCP write timed out")
-                proc.kill()  # unblocks the pending write
+                _kill_group(proc)  # unblocks the pending write
                 raise TimeoutError(f"write to MCP server timed out after {timeout}s")
         if failed:
             raise McpClosed("could not write to MCP server")
@@ -400,10 +402,21 @@ class McpClient:
         names: set[str] = set()
         catalogue = 0
         cursor: str | None = None
-        seen: set[str] = set()
+        seen: set[bytes] = set()  # hashes: a hostile cursor is not kept
+        deadline = time.monotonic() + self._server.call_timeout_s  # one deadline for all pages
         for _ in range(MAX_TOOL_PAGES):
-            result = self.request("tools/list", {"cursor": cursor} if cursor else {})
-            for raw in result.get("tools") or []:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError(f"tools/list took over {self._server.call_timeout_s}s in total")
+            result = self.request(
+                "tools/list", {"cursor": cursor} if cursor else {}, timeout_s=left
+            )
+            page = result.get("tools")
+            if page is None:
+                page = []
+            if not isinstance(page, list):
+                raise McpError("tools/list 'tools' is not a list")
+            for raw in page:
                 if isinstance(raw, dict) and isinstance(raw.get("name"), str):
                     name = raw["name"]
                     if len(tools) >= MAX_TOOLS:
@@ -455,9 +468,12 @@ class McpClient:
                 return tools
             if not isinstance(nxt, str):
                 raise McpError("tools/list nextCursor is not a string")
-            if nxt in seen:
+            if len(nxt) > MAX_CURSOR_CHARS:
+                raise McpError(f"tools/list nextCursor is over {MAX_CURSOR_CHARS} characters")
+            mark = hashlib.sha256(nxt.encode("utf-8", "surrogatepass")).digest()
+            if mark in seen:
                 raise McpError("tools/list repeated a cursor")
-            seen.add(nxt)
+            seen.add(mark)
             cursor = nxt
         raise McpError("too many tools/list pages")
 
@@ -465,7 +481,12 @@ class McpClient:
         self._require_initialized()
         result = self.request("tools/call", {"name": name, "arguments": arguments})
         parts: list[str] = []
-        for item in result.get("content") or []:
+        content = result.get("content")
+        if content is None:
+            content = []
+        if not isinstance(content, list):
+            raise McpError("tools/call 'content' is not a list")
+        for item in content:
             if isinstance(item, dict) and item.get("type") == "text":
                 parts.append(str(item.get("text", "")))
             elif isinstance(item, dict):
@@ -496,13 +517,12 @@ class McpClient:
                 try:
                     proc.wait(timeout=TERMINATE_WAIT_S)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    _kill_group(proc)
                     proc.wait(timeout=TERMINATE_WAIT_S)
         except (OSError, subprocess.TimeoutExpired):
             pass
         finally:
-            if proc.poll() is None:
-                proc.kill()
+            _kill_group(proc)  # even if the child exited: a grandchild may hold the pipes open
             self._proc = None
             self._initialized = False
             self._fail("MCP session closed")
@@ -523,20 +543,52 @@ class McpClient:
             pass
 
 
-class McpTool:
-    """Adapts one MCP tool to the runtime ``Tool`` protocol."""
+QUARANTINE_NOTICE: Final = (
+    "[quarantined: this tool's definition changed or is not yet approved; its text is withheld "
+    "and calls are refused until an operator approves it]"
+)
+_UNSET: Final = object()
 
-    def __init__(self, client: McpClient, info: McpToolInfo, quarantine: str | None = None) -> None:
+
+class McpTool:
+    """Adapts one MCP tool to the runtime ``Tool`` protocol.
+
+    ``approved`` is the digest an operator last approved for this tool (None: none yet). A
+    quarantined tool shows the model ``shown`` (its last approved definition) when the caller has
+    it, else only a fixed notice; the server's new text never reaches the model.
+    """
+
+    def __init__(
+        self,
+        client: McpClient,
+        info: McpToolInfo,
+        quarantine: str | None = None,
+        approved: Any = _UNSET,
+        shown: McpToolInfo | None = None,
+    ) -> None:
         self._client = client
         self._info = info
         self._quarantine = quarantine
+        self.approved_digest: str | None = (
+            (info.digest if quarantine is None else None) if approved is _UNSET else approved
+        )
+        desc, params = info.description, info.input_schema
+        if quarantine is not None:
+            desc, params = QUARANTINE_NOTICE, {"type": "object", "additionalProperties": True}
+            if shown is not None:
+                desc = f"{shown.description} {QUARANTINE_NOTICE}"
+                params = shown.input_schema
         self.spec = ToolSpec(
             name=info.public_name,
-            description=info.description,
-            parameters=info.input_schema,
+            description=desc,
+            parameters=params,
             idempotent=False,
             timeout_s=client._server.call_timeout_s + SPEC_TIMEOUT_MARGIN_S,
         )
+
+    @property
+    def quarantined(self) -> bool:
+        return self._quarantine is not None
 
     def run(self, arguments: dict[str, Any]) -> str:
         if self._quarantine is not None:
@@ -547,29 +599,50 @@ class McpTool:
         return result.text
 
 
+def approved_digests(tools: Iterable[McpTool]) -> dict[str, str]:
+    """The mapping to store and pass as ``previous`` next time: tool name to approved digest.
+
+    A quarantined tool keeps its LAST APPROVED digest (a tool with none is left out, so it stays
+    new), never the digest the server sent now. Storing the raw latest listing instead would
+    approve a changed tool on the following listing; callers must persist this mapping.
+    """
+    return {t._info.name: t.approved_digest for t in tools if t.approved_digest is not None}
+
+
+def _no_str(value: object, what: str) -> None:
+    if isinstance(value, str):
+        raise TypeError(f"{what} must be a collection of names, not one string")
+
+
 def mcp_tools(
     client: McpClient,
     *,
     previous: Mapping[str, str] | None = None,
     enabled: Collection[str] | Mapping[str, str] = (),
     trusted_read_only: Collection[str] = (),
+    approved_infos: Mapping[str, McpToolInfo] | None = None,
 ) -> list[McpTool]:
     """Tools of one server.
 
-    ``previous`` is an earlier listing as a mapping of tool name to ``McpToolInfo.digest``; a set or
-    list of names is refused with TypeError, because names alone cannot show that a tool changed.
+    ``previous`` is the approved baseline as a mapping of tool name to ``McpToolInfo.digest``; a set
+    or list of names is refused with TypeError, because names alone cannot show that a tool changed.
+    Build it with ``approved_digests`` of the last call and persist that, not the raw listing.
     A tool that is new since then, or whose digest (description, schema, title, output schema or
     annotations) changed, comes back quarantined: a call is refused with a reason until the operator
-    enables it. ``enabled`` is either a mapping of name to the digest the operator approved (the
-    tool runs only while its digest still matches) or a plain collection of names (a new tool
-    with that name runs, but a tool that is in ``previous`` with another digest stays quarantined;
-    approve a changed tool by giving its new digest in a mapping). A new tool skips quarantine only
-    if the operator names it in ``trusted_read_only``; the server's own readOnlyHint is not trusted.
-    The first listing (``previous`` is None) is the baseline.
+    enables it, and the model sees a fixed notice (and the last approved text from
+    ``approved_infos``, if given and its digest matches the approved one), never the server's new
+    text. ``enabled`` is either a mapping of name to the digest the operator approved (the tool runs
+    only while its digest still matches, also on the first listing) or a plain collection of names
+    (a new tool with that name runs, but a tool that is in ``previous`` with another digest stays
+    quarantined; approve a changed tool by giving its new digest in a mapping). A new tool skips
+    quarantine only if the operator names it in ``trusted_read_only``; the server's own readOnlyHint
+    is not trusted. The first listing (``previous`` is None, no digest mapping) is the baseline.
     (adapted from references/paperclip/doc/MCP-ACCESS-GOVERNANCE.md:221 (MIT), idea only)
     """
     if previous is not None and not isinstance(previous, Mapping):
         raise TypeError("previous must be a mapping of tool name to digest, not a set or list")
+    _no_str(enabled, "enabled")
+    _no_str(trusted_read_only, "trusted_read_only")
     cfg = client._server
     tools: list[McpTool] = []
     for info in client.list_tools():
@@ -578,25 +651,40 @@ def mcp_tools(
         ):
             continue
         why = None
-        if previous is not None:
-            by_digest = isinstance(enabled, Mapping)
-            approved = (
-                enabled.get(info.name) == info.digest
-                if isinstance(enabled, Mapping)
-                else info.name in enabled
-            )
-            if info.name not in previous:
-                if not approved and info.name not in trusted_read_only:
-                    why = (
-                        f"quarantined: tool {_short(info.name)} is new since the last catalog "
-                        "listing and the operator has not trusted it; an operator must enable it "
-                        "by name before it can be called"
-                    )
-            elif previous[info.name] != info.digest and not (by_digest and approved):
+        keep: str | None = info.digest  # the digest that stays approved after this listing
+        by_digest = isinstance(enabled, Mapping)
+        approved = (
+            enabled.get(info.name) == info.digest
+            if isinstance(enabled, Mapping)
+            else info.name in enabled
+        )
+        if previous is None:
+            if isinstance(enabled, Mapping) and info.name in enabled and not approved:
                 why = (
-                    f"quarantined: tool {_short(info.name)} changed its definition since the "
-                    "last catalog listing; an operator must approve its new digest before it "
+                    f"quarantined: tool {_short(info.name)} does not match the digest the "
+                    "operator approved; an operator must approve its new digest before it "
                     "can be called"
                 )
-        tools.append(McpTool(client, info, why))
+                keep = enabled[info.name]
+        elif info.name not in previous:
+            if not approved and info.name not in trusted_read_only:
+                why = (
+                    f"quarantined: tool {_short(info.name)} is new since the last catalog "
+                    "listing and the operator has not trusted it; an operator must enable it "
+                    "by name before it can be called"
+                )
+                keep = None
+        elif previous[info.name] != info.digest and not (by_digest and approved):
+            why = (
+                f"quarantined: tool {_short(info.name)} changed its definition since the "
+                "last catalog listing; an operator must approve its new digest before it "
+                "can be called"
+            )
+            keep = previous[info.name]
+        shown = None
+        if why is not None and approved_infos is not None:
+            old = approved_infos.get(info.name)
+            if old is not None and old.digest == keep:
+                shown = old
+        tools.append(McpTool(client, info, why, keep, shown))
     return tools
