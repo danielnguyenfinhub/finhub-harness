@@ -72,6 +72,8 @@ WRAPPED = [
     "flock -x /tmp/l -c '{c}'", "flock --command '{c}' /tmp/l", "flock -E 9 -n /tmp/l {c}",
     "chroot /x {c}", "chroot --userspec u:g /x {c}", "chroot --groups a,b /x {c}",
     "taskset 1 {c}", "taskset 0x3 {c}", "taskset -c 0,1 {c}", "taskset --cpu-list 0 {c}",
+    "chrt 1 {c}", "chrt -f 10 {c}", "numactl -N 0 {c}", "numactl --interleave=all {c}",
+    "setpriv --reuid=1 {c}", "setpriv --reuid 1 --regid 1 {c}",
     "unshare -m {c}", "unshare -rm {c}", "unshare --mount {c}", "unshare -U --map-root-user {c}",
     "nsenter -t 1 -m {c}", "nsenter --target 1 --mount {c}", "nsenter -t1 -n -p {c}",
     "stdbuf -oL {c}", "stdbuf -i0 -o0 -e0 {c}",

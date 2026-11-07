@@ -207,6 +207,9 @@ LEGACY_WRAPPERS: Final = frozenset(
 # round 4: more programs that run the rest of their words as a command
 WRAPPERS: Final = LEGACY_WRAPPERS | frozenset(
     [
+        "chrt",
+        "numactl",
+        "setpriv",
         "chroot",
         "taskset",
         "unshare",
@@ -237,6 +240,7 @@ WRAPPER_VALUE_FLAGS: Final[Mapping[str, frozenset[str]]] = {
     "strace": frozenset({"-e", "-o", "-p", "-s", "-u", "-E"}),
     "ltrace": frozenset({"-e", "-o", "-p", "-s", "-u"}),
     "taskset": frozenset({"-c"}),
+    "numactl": frozenset({"-N", "-m", "-C", "-i", "-p"}),
     "unshare": frozenset({"-S", "-G", "-R", "-w"}),
     "nsenter": frozenset({"-t", "-S", "-G"}),
     "flock": frozenset({"-w", "-E", "-c"}),
@@ -287,6 +291,14 @@ WRAPPER_VALUE_LONG: Final[Mapping[str, frozenset[str]]] = {
     "time": frozenset({"--format", "--output"}),
     "chroot": frozenset({"--userspec", "--groups"}),
     "taskset": frozenset({"--cpu-list"}),
+    "numactl": frozenset(
+        {"--cpunodebind", "--membind", "--interleave", "--preferred", "--physcpubind"}
+    ),
+    "setpriv": frozenset(
+        {"--reuid", "--regid", "--ruid", "--euid", "--rgid", "--egid", "--groups", "--inh-caps"}
+        | {"--bounding-set", "--ambient-caps", "--securebits", "--selinux-label"}
+        | {"--apparmor-profile"}
+    ),
     "unshare": frozenset({"--root", "--wd", "--setuid", "--setgid", "--propagation"}),
     "nsenter": frozenset({"--target", "--setuid", "--setgid"}),
     "flock": frozenset({"--timeout", "--wait", "--conflict-exit-code", "--command"}),
@@ -298,7 +310,7 @@ WRAPPER_VALUE_LONG: Final[Mapping[str, frozenset[str]]] = {
 # round 4: words a wrapper takes before the command (the lock file, the new root, the CPU mask,
 # the host); `taskset -c LIST` has none because the list was the option's value
 POSITIONAL: Final[Mapping[str, int]] = {
-    "timeout": 1, "flock": 1, "chroot": 1, "taskset": 1, "ssh": 1,
+    "timeout": 1, "flock": 1, "chroot": 1, "taskset": 1, "ssh": 1, "chrt": 1,
 }  # fmt: skip
 # a wrapper flag whose value is a shell command string (`flock F -c STR`, `script -c STR`)
 CMD_STRING_FLAGS: Final[Mapping[str, str]] = {"flock": "c", "script": "c"}
