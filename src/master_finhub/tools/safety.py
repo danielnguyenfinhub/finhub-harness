@@ -184,7 +184,7 @@ ANSI_SIMPLE: Final[Mapping[str, str]] = {
 }  # fmt: skip
 ASSIGN_PREFIXES: Final = frozenset({"export", "declare", "local", "readonly", "typeset"})
 FUNC_RE: Final = re.compile(r"([A-Za-z_:][\w:-]{0,63})\(\)\{|function([A-Za-z_][\w-]{0,63})\{")
-WRAPPERS: Final = frozenset(
+LEGACY_WRAPPERS: Final = frozenset(
     [
         "sudo",
         "doas",
@@ -204,6 +204,25 @@ WRAPPERS: Final = frozenset(
         "ltrace",
     ]
 )
+# round 4: more programs that run the rest of their words as a command
+WRAPPERS: Final = LEGACY_WRAPPERS | frozenset(
+    [
+        "chrt",
+        "numactl",
+        "setpriv",
+        "chroot",
+        "taskset",
+        "unshare",
+        "nsenter",
+        "dbus-launch",
+        "builtin",
+        "flock",
+        "script",
+        "watch",
+        "ssh",
+        "parallel",
+    ]
+)
 # RA2-04: words that open a command in the shell grammar; the command follows them
 CONTROL_WORDS: Final = frozenset(["then", "do", "else", "elif", "if", "while", "until", "{", "!"])
 # NF3: wrapper flags that consume the next word (so it is not mistaken for the command).
@@ -220,6 +239,38 @@ WRAPPER_VALUE_FLAGS: Final[Mapping[str, frozenset[str]]] = {
     "ionice": frozenset({"-c", "-n", "-p", "-P", "-u"}),
     "strace": frozenset({"-e", "-o", "-p", "-s", "-u", "-E"}),
     "ltrace": frozenset({"-e", "-o", "-p", "-s", "-u"}),
+    "taskset": frozenset({"-c"}),
+    "numactl": frozenset({"-N", "-m", "-C", "-i", "-p"}),
+    "unshare": frozenset({"-S", "-G", "-R", "-w"}),
+    "nsenter": frozenset({"-t", "-S", "-G"}),
+    "flock": frozenset({"-w", "-E", "-c"}),
+    "script": frozenset({"-c", "-E", "-I", "-O", "-B", "-T", "-m", "-o"}),
+    "watch": frozenset({"-n"}),
+    "parallel": frozenset({"-j", "-n", "-N", "-a", "-S", "-L", "-P", "-I", "-d", "-E", "-s", "-l"}),
+    "ssh": frozenset(
+        {
+            "-b",
+            "-c",
+            "-D",
+            "-E",
+            "-e",
+            "-F",
+            "-I",
+            "-i",
+            "-J",
+            "-L",
+            "-l",
+            "-m",
+            "-O",
+            "-o",
+            "-p",
+            "-Q",
+            "-R",
+            "-S",
+            "-W",
+            "-w",
+        }
+    ),
 }
 # RA2-05: long options that take a value in the next word (`--opt=value` is one word already)
 WRAPPER_VALUE_LONG: Final[Mapping[str, frozenset[str]]] = {
@@ -238,7 +289,32 @@ WRAPPER_VALUE_LONG: Final[Mapping[str, frozenset[str]]] = {
     ),
     "exec": frozenset(),
     "time": frozenset({"--format", "--output"}),
+    "chroot": frozenset({"--userspec", "--groups"}),
+    "taskset": frozenset({"--cpu-list"}),
+    "numactl": frozenset(
+        {"--cpunodebind", "--membind", "--interleave", "--preferred", "--physcpubind"}
+    ),
+    "setpriv": frozenset(
+        {"--reuid", "--regid", "--ruid", "--euid", "--rgid", "--egid", "--groups", "--inh-caps"}
+        | {"--bounding-set", "--ambient-caps", "--securebits", "--selinux-label"}
+        | {"--apparmor-profile"}
+    ),
+    "unshare": frozenset({"--root", "--wd", "--setuid", "--setgid", "--propagation"}),
+    "nsenter": frozenset({"--target", "--setuid", "--setgid"}),
+    "flock": frozenset({"--timeout", "--wait", "--conflict-exit-code", "--command"}),
+    "script": frozenset({"--command", "--log-in", "--log-out", "--log-io", "--timing"}),
+    "watch": frozenset({"--interval"}),
+    "parallel": frozenset({"--jobs", "--max-args", "--arg-file", "--delimiter", "--replace"}),
+    "ssh": frozenset(),
 }
+# round 4: words a wrapper takes before the command (the lock file, the new root, the CPU mask,
+# the host); `taskset -c LIST` has none because the list was the option's value
+POSITIONAL: Final[Mapping[str, int]] = {
+    "timeout": 1, "flock": 1, "chroot": 1, "taskset": 1, "ssh": 1, "chrt": 1,
+}  # fmt: skip
+# a wrapper flag whose value is a shell command string (`flock F -c STR`, `script -c STR`)
+CMD_STRING_FLAGS: Final[Mapping[str, str]] = {"flock": "c", "script": "c"}
+PARALLEL_SEPS: Final = frozenset({":::", "::::", ":::+", "::::+"})
 SHELLS: Final = frozenset(
     [
         "sh",
@@ -411,7 +487,7 @@ def strip_wrappers_legacy(words: list[str]) -> list[str]:
             i += 1
             continue
         wrapper = cmd_name(words[i])
-        if wrapper not in WRAPPERS:
+        if wrapper not in LEGACY_WRAPPERS:
             break
         i += 1
         valued = WRAPPER_VALUE_FLAGS.get(wrapper, frozenset())
@@ -432,35 +508,86 @@ def _split_string(value: str) -> list[str]:
     return shlex.split(value)  # ValueError on bad quoting: the caller fails closed
 
 
-def _peel(ws: list[str], i: int, out: list[list[str]], left: list[int]) -> None:
+REDIRECT_WORDS: Final = frozenset({">", ">>", "&>", ">&", "<", ">|"})
+MAX_PARALLEL_INPUTS: Final = 16  # inputs of `parallel ... :::` read one by one
+PLACEHOLDER_RE: Final = re.compile(r"\{[^{}\s]*\}")
+
+
+def _redirect_end(ws: list[str], i: int) -> int | None:
+    """Round 4 (R4): index after a redirection that stands in front of the command: `>f`,
+    `2>/dev/null`, `2>&1`, `<f`, `<<<x`. The command is the word after it, as in the shell."""
+    j = i
+    if ws[j].isdigit() and j + 1 < len(ws) and ws[j + 1] in REDIRECT_WORDS:
+        j += 1
+    if ws[j] not in REDIRECT_WORDS:
+        return None
+    j += 1
+    while j < len(ws) and ws[j] == "<":  # `<<EOF`, `<<<word`: the lexer splits the operator
+        j += 1
+    return min(j + 1, len(ws))
+
+
+def _parallel_texts(rest: list[str]) -> tuple[list[str], list[str]]:
+    """`parallel CMD ARGS ::: INPUTS`: the command words and the shell texts it will run."""
+    k = next((n for n, w in enumerate(rest) if w in PARALLEL_SEPS), len(rest))
+    cmd, inputs = rest[:k], [w for w in rest[k + 1 :] if w not in PARALLEL_SEPS]
+    base = " ".join(cmd)
+    texts = [base] if base else []
+    for inp in [*inputs[:MAX_PARALLEL_INPUTS], " ".join(inputs[MAX_PARALLEL_INPUTS:])]:
+        if not inp:
+            continue
+        if PLACEHOLDER_RE.search(base):
+            texts.append(PLACEHOLDER_RE.sub(inp.replace("\\", "\\\\"), base))
+        else:
+            texts.append(f"{base} {inp}".strip())
+    return cmd, texts
+
+
+def _peel(
+    ws: list[str], i: int, out: list[list[str]], left: list[int], modern: bool = True
+) -> None:
     """Append every reading of the command in ws[i:] to `out`, the main one last. Peels VAR=x,
-    control words (`then`, `do`, `{`, `!` ...), `function NAME`, and wrappers with their option
-    values: single flags, clustered flags (`-Eu root`), long options, `--`, and `env -S 'cmd'`.
-    An unknown long option may or may not take a value, so both readings are kept."""
+    redirections in front of the command, control words (`then`, `do`, `{`, `!` ...),
+    `function NAME`, and wrappers with their option values: single flags, clustered flags
+    (`-Eu root`), long options, `--`, and `env -S 'cmd'`. An unknown long option may or may not
+    take a value, so both readings are kept. Wrappers that hand a string to a shell (`flock -c`,
+    `script -c`, `watch`, `ssh HOST CMD`, `parallel`) add a `sh -c STRING` reading."""
     while i < len(ws):
         w = ws[i]
         if ASSIGN_RE.fullmatch(w) or w in CONTROL_WORDS:
             i += 1
             continue
+        redirect_end = _redirect_end(ws, i) if modern else None
+        if redirect_end is not None:
+            i = redirect_end
+            continue
         if w == "function":
             i += 2  # the function name
             continue
         wrapper = cmd_name(w)
-        if wrapper not in WRAPPERS:
+        if wrapper not in (WRAPPERS if modern else LEGACY_WRAPPERS):
             break
+        start = i
         i += 1
         valued = WRAPPER_VALUE_FLAGS.get(wrapper, frozenset())
         long_valued = WRAPPER_VALUE_LONG.get(wrapper, frozenset())
+        cmd_flag = CMD_STRING_FLAGS.get(wrapper, "")
+        seen: set[str] = set()
+        cmdstr: str | None = None
+        ssh_o: list[str] = []
         while i < len(ws) and ws[i].startswith("-"):
             flag = ws[i]
             i += 1
             if flag == "--":
                 break
             if flag.startswith("--"):
+                seen.add(flag.partition("=")[0])
                 if "=" in flag:
                     if wrapper == "env" and flag.startswith("--split-string="):
                         ws = [*ws[: i - 1], *_split_string(flag.partition("=")[2]), *ws[i:]]
                         i -= 1
+                    elif cmd_flag and flag.startswith("--command="):
+                        cmdstr = flag.partition("=")[2]
                     continue
                 if flag in long_valued:
                     if i < len(ws):
@@ -468,12 +595,15 @@ def _peel(ws: list[str], i: int, out: list[list[str]], left: list[int]) -> None:
                             ws = [*ws[: i - 1], *_split_string(ws[i]), *ws[i + 1 :]]
                             i -= 1
                         else:
+                            if cmd_flag and flag == "--command":
+                                cmdstr = ws[i]
                             i += 1
                 elif i < len(ws) and left[0] > 0:
                     left[0] -= 1
-                    _peel(ws, i + 1, out, left)  # reading B: the next word was its value
+                    _peel(ws, i + 1, out, left, modern)  # reading B: the next word was its value
                 continue
             for j in range(1, len(flag)):
+                seen.add("-" + flag[j])
                 if "-" + flag[j] not in valued:
                     continue
                 if j + 1 < len(flag):  # `-uroot`, `-Sstring`: the value is attached
@@ -487,9 +617,45 @@ def _peel(ws: list[str], i: int, out: list[list[str]], left: list[int]) -> None:
                     i -= 1
                 else:
                     i += step
+                if cmd_flag and flag[j] == cmd_flag:
+                    cmdstr = value
+                if wrapper == "ssh" and flag[j] == "o":
+                    ssh_o.append(value)
                 break
-        if wrapper == "timeout" and i < len(ws):
-            i += 1  # the duration
+        n = POSITIONAL.get(wrapper, 0)
+        if wrapper == "taskset" and seen & {"-c", "--cpu-list"}:
+            n = 0  # the CPU list was the option's value; no mask word follows
+        i += min(n, len(ws) - i)
+        if (
+            wrapper == "flock"
+            and cmdstr is None
+            and i + 1 < len(ws)
+            and re.fullmatch(r"-[A-Za-z]*c|--command", ws[i])
+        ):
+            cmdstr, i = ws[i + 1], len(ws)
+        if cmdstr is not None:
+            out.append(["sh", "-c", cmdstr])
+            out.append(ws[start:])  # the wrapper itself is the command of this reading
+            return
+        if wrapper == "script":
+            out.append(ws[start:])
+            return
+        if wrapper == "ssh":
+            for o in ssh_o:  # `-o ProxyCommand=CMD` runs CMD on this machine
+                m = re.match(r"(?i)(?:proxy|local)command\s*=?\s*(.+)", o)
+                if m:
+                    out.append(["sh", "-c", m.group(1)])
+            if i < len(ws):
+                out.append(["sh", "-c", " ".join(ws[i:])])  # the remote shell reads the text
+            out.append(ws[start:])
+            return
+        if wrapper == "watch" and not seen & {"-x", "--exec"} and i < len(ws):
+            out.append(["sh", "-c", " ".join(ws[i:])])  # without -x, watch hands it to sh -c
+        if wrapper == "parallel":
+            cmd, texts = _parallel_texts(ws[i:])
+            out.extend(["sh", "-c", t] for t in texts)
+            out.append(cmd)
+            return
     out.append(ws[i:])
 
 
@@ -504,7 +670,9 @@ def _cores_cached(words_t: tuple[str, ...]) -> tuple[tuple[str, ...], ...]:
     words = list(words_t)
     out: list[list[str]] = []
     _peel(words, 0, out, [MAX_BRANCHES])
-    found = [out[-1], *out[:-1], strip_wrappers_legacy(words)]
+    older: list[list[str]] = []  # the previous round's peel too, so no name or rule it saw is lost
+    _peel(words, 0, older, [MAX_BRANCHES], False)
+    found = [out[-1], *out[:-1], *older, strip_wrappers_legacy(words)]
     return tuple(tuple(c) for c in {tuple(c): c for c in found})
 
 
@@ -743,6 +911,74 @@ def _braces(word: str) -> list[str]:
     return forms
 
 
+LISTERS_ALWAYS: Final = frozenset({"du", "tree", "ncdu", "dust"})
+LISTERS_FLAGGED: Final = frozenset({"ls", "exa", "eza", "lsd"})
+FINDERS: Final = frozenset({"fd", "fdfind"})
+FIND_LEADING: Final = frozenset({"-H", "-L", "-P"})
+
+
+def _cred_below(root: str) -> bool:
+    """Round 4: does a credential path exist below this whole-tree root? Under `/` one always
+    does (/etc/shadow); under the home directory or a parent of it, only if HOME holds one."""
+    return root == "/" or _sp.home_has_credential(_sp.current_scan() or _sp.Scan())
+
+
+def _recursive_listing(name: str, args: list[str]) -> bool:
+    letters = "R" if name == "ls" else "RT"
+    return any(
+        a in ("--recursive", "--tree")
+        or (a.startswith("-") and not a.startswith("--") and any(c in a[1:] for c in letters))
+        for a in args
+    )
+
+
+def _listing_roots(name: str, args: list[str], positional: list[str]) -> list[str]:
+    """The directories a listing, search or archive command walks (round 4, item 5)."""
+    if name == "find":
+        rest = list(itertools.dropwhile(lambda a: a in FIND_LEADING, args))
+        return list(itertools.takewhile(lambda a: not a.startswith(("-", "(", "!")), rest)) or ["."]
+    if name == "git":
+        if "archive" not in args:
+            return []
+        dirs = [args[i + 1] for i, a in enumerate(args) if a == "-C" and i + 1 < len(args)]
+        return dirs or ["."]
+    if name == "diff":
+        return positional if recursive_flag(name, args) else []
+    if name in LISTERS_FLAGGED and not _recursive_listing(name, args):
+        return []
+    if name in LISTERS_ALWAYS or name in LISTERS_FLAGGED or name in FINDERS:
+        # `du -d 1` and `fd PATTERN` keep a non-path word among the operands: judge "." too
+        if not positional or all(p.isdigit() for p in positional) or name in FINDERS:
+            return [*positional, "."]
+        return positional
+    return []
+
+
+def _find_filtered(args: list[str]) -> bool:
+    """A `find` whose `-name`/`-iname` filter cannot match a credential name lists none (no
+    `-o`, `!` or group that could widen it back)."""
+    if {"-o", "-or", "!", "-not", "(", "\\("} & set(args):
+        return False
+    pats = [
+        args[i + 1] for i, a in enumerate(args) if a in ("-name", "-iname") and i + 1 < len(args)
+    ]
+    return any(not _sp.name_could_be_credential(p) for p in pats)
+
+
+def _listing_read(name: str, args: list[str], positional: list[str], state: _State) -> bool:
+    """Round 4 (item 5): a recursive lister, finder or archiver (`du -a ~`, `find ~ -name x`,
+    `ls -R ~`, `tree`, `fd`, `diff -r`, `git archive`) rooted at `/`, the home directory or a
+    parent of it, where a credential path exists below. A listing names the credential files
+    even when it does not read them."""
+    if name == "find" and _find_filtered(args):
+        return False
+    for o in dict.fromkeys(_listing_roots(name, args, positional)):  # a repeated word is read once
+        root = _whole_root(o, state)
+        if root is not None and _cred_below(root):
+            return True
+    return False
+
+
 def _exists(path: str) -> bool:
     try:
         os.lstat(path)
@@ -908,6 +1144,78 @@ def _quoted_subst_rule(words: list[str], joined: str, state: _State) -> str | No
     return None
 
 
+SCRIPT_FAMILIES: Final = re.compile(
+    r"(?P<py>python[\d.]*)|(?P<pl>perl[\d.]*)|(?P<rb>ruby[\d.]*)|(?P<js>node(?:js)?)"
+    r"|(?P<php>php[\d.]*)|(?P<lua>lua(?:jit)?[\d.]*)"
+)
+SCRIPT_FLAGS: Final[Mapping[str, str]] = {
+    "py": "c", "pl": "eE", "rb": "e", "js": "ep", "php": "r", "lua": "e",
+}  # fmt: skip
+SCRIPT_LONG: Final = ("--eval", "--print", "--exec")
+QUOTED_RE: Final = re.compile(
+    r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`", re.DOTALL
+)
+PIECE_RE: Final = re.compile(r"[^\s'\"`(),;<>|&=\[\]{}]+")
+MAX_SCRIPT_LITERALS: Final = 256  # literals joined with their neighbours
+MAX_SCRIPT_WINDOW: Final = 4
+
+
+def _script_bodies(name: str, args: list[str]) -> list[str]:
+    """Round 4 (item 6): the inline program texts of `python -c`, `perl -e`, `ruby -e`,
+    `node -e`, `php -r` and `lua -e` (the cluster `-lne`, an attached `-ecode` and `--eval` too)."""
+    m = SCRIPT_FAMILIES.fullmatch(name)
+    if m is None or m.lastgroup is None:
+        return []
+    letters, bodies = SCRIPT_FLAGS[m.lastgroup], []
+    for i, a in enumerate(args):
+        if a.startswith("--"):
+            flag, eq, val = a.partition("=")
+            if flag in SCRIPT_LONG and m.lastgroup == "js":
+                if eq:
+                    bodies.append(val)
+                elif i + 1 < len(args):
+                    bodies.append(args[i + 1])
+            continue
+        if a.startswith("-") and len(a) > 1:
+            k = next((n for n, c in enumerate(a[1:]) if c in letters), None)
+            if k is None:
+                continue
+            if k + 2 < len(a):
+                bodies.append(a[k + 2 :])  # `-cCODE`, `-ecode`
+            elif i + 1 < len(args):
+                bodies.append(args[i + 1])
+    return bodies
+
+
+def _script_candidates(body: str) -> set[str]:
+    """Path-shaped texts in a program: every quoted literal, every run of path characters, and
+    the literals of neighbouring strings joined with `/` and with nothing (`join(h, '.ssh', 'id')`,
+    `'.ss' + 'h'`). A computed path (`chr(46)`, a variable read) stays out of reach."""
+    lits = [q[1:-1] for q in QUOTED_RE.findall(body)]
+    out = {
+        x
+        for x in [*lits, *PIECE_RE.findall(body), *(p for q in lits for p in PIECE_RE.findall(q))]
+        if x
+    }
+    head = lits[:MAX_SCRIPT_LITERALS]
+    for size in range(2, MAX_SCRIPT_WINDOW + 1):
+        for i in range(len(head) - size + 1):
+            part = head[i : i + size]
+            out.add("/".join(part))
+            out.add("".join(part))
+    return out
+
+
+def _script_literals_rule(name: str, args: list[str]) -> str | None:
+    """'sensitive-path' when an inline program of a scripting interpreter names a credential path
+    in its text, relative (`.ssh/id_rsa`) or joined from literals."""
+    for body in _script_bodies(name, args):
+        for cand in _script_candidates(body):
+            if _sp.sensitive_rule(cand, resolve=False, max_chars=MAX_COMMAND_CHARS):
+                return "sensitive-path"
+    return None
+
+
 def _unscannable(words: list[str], core: list[str], name: str, args: list[str]) -> bool:
     """xargs, find -exec of a shell: the paths are not in the text. (A substitution naming a
     credential location is judged in _check_tokens.)"""
@@ -1043,8 +1351,9 @@ TREE_ALWAYS: Final = frozenset({"rg", "ag", "ack", "bsdtar", "7z", "7za"})
 TREE_COPIERS: Final = frozenset({"cp", "rsync", "scp", "zip"})
 
 
-def _whole_tree(o: str, state: _State) -> bool:
-    """RA2-08: the word names `/`, the home directory or a parent of it (by any reading)."""
+def _whole_root(o: str, state: _State) -> str | None:
+    """RA2-08: the whole tree the word names (`/`, the home directory or a parent of it, by any
+    reading), or None. A word that cannot be resolved counts as `/`."""
     home = posixpath.normpath(_home())
     whole = {"/"}
     for h in {home, os.path.realpath(home)}:
@@ -1055,7 +1364,7 @@ def _whole_tree(o: str, state: _State) -> bool:
     try:
         forms = _target_forms(o, state)
     except _TooManyForms:
-        return True
+        return "/"
     for f in forms:
         e = os.path.expanduser(os.path.expandvars(f))
         if not e:
@@ -1068,10 +1377,14 @@ def _whole_tree(o: str, state: _State) -> bool:
         try:
             r = _sp.realpath_bounded(e, _sp.current_scan() or _sp.Scan())
         except Exception:  # noqa: BLE001 - fail closed
-            return True
+            return "/"
         if e in whole or r in whole:
-            return True
-    return False
+            return e if e in whole else r
+    return None
+
+
+def _whole_tree(o: str, state: _State) -> bool:
+    return _whole_root(o, state) is not None
 
 
 def _tree_read(name: str, args: list[str], positional: list[str], state: _State) -> bool:
@@ -1082,16 +1395,16 @@ def _tree_read(name: str, args: list[str], positional: list[str], state: _State)
             recursive_flag(name, args) or "--dereference-recursive" in args
         ):
             return False
-        explicit = any(a in ("-e", "-f", "--regexp", "--file") for a in args)
+        explicit = any(a in ("-e", "-f", "--regexp", "--file", "--files") for a in args)
         paths = positional if explicit else positional[1:]
         if not paths:
             paths = ["."]  # grep -r and rg search the current directory
     elif name in ("tar", "bsdtar"):
         first = args[0] if args else ""
         create = (
-            "--create" in args
-            or any("c" in c for c in short)
-            or (bool(first) and not first.startswith("-") and "c" in first)
+            bool({"--create", "--append", "--update"} & set(args))
+            or any(set("cru") & set(c) for c in short)
+            or (bool(first) and not first.startswith("-") and bool(set("cru") & set(first)))
         )
         if name == "tar" and not create:
             return False
@@ -1145,7 +1458,9 @@ def _core_rule(words: list[str], core: list[str], state: _State) -> str | None:
     find_start_bad = not args or args[0].startswith("-") or _danger(args[0], state, True)
     if name == "find" and deletes and find_start_bad:
         return "find-delete-root"
-    if state.sensitive and _tree_read(name, args, positional, state):
+    if state.sensitive and (
+        _tree_read(name, args, positional, state) or _listing_read(name, args, positional, state)
+    ):
         return "sensitive-path"
     if name.startswith("mkfs") or name in FORMATTERS:
         return "format-disk"
@@ -1188,6 +1503,8 @@ def _core_rule(words: list[str], core: list[str], state: _State) -> str | None:
     if is_interpreter(name) and any(a.removeprefix("./") in state.downloaded for a in args):
         return "run-downloaded-script"
     rule = _inline_rule(name, args, state.depth, state.sensitive)
+    if rule is None and state.sensitive:
+        rule = _script_literals_rule(name, args)
     if rule is None and state.sensitive and _unscannable(words, core, name, args):
         return "unscannable-path"
     return rule
@@ -1419,6 +1736,8 @@ def _check_tokens(tokens: list[str], depth: int, sensitive: bool) -> str | None:
         ):
             words = [*words, "$("]  # `cd $(...)`: the target is not literal
         rule = segment_rule(words, state)
+        if rule is None and clobber and len(words) > 1:
+            rule = segment_rule(words[1:], state)  # `>|f CMD`: the lexer split off the file name
         if rule:
             return rule
         if sensitive and _subst_credential(segs, idx):

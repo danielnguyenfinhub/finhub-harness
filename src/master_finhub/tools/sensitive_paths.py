@@ -155,6 +155,7 @@ class Scan:
     components_left: int = field(default_factory=lambda: RESOLVE_COMPONENT_BUDGET)
     entries_left: int = field(default_factory=lambda: GLOB_ENTRIES_PER_CALL)
     inodes: frozenset[tuple[int, int]] | None = None  # (dev, ino) of credential files, lazily
+    has_cred: bool | None = None  # does any credential path exist under the home directory
 
 
 _SCAN: Final[contextvars.ContextVar[Scan | None]] = contextvars.ContextVar(
@@ -397,6 +398,15 @@ def _cred_inodes(scan: Scan) -> frozenset[tuple[int, int]]:
     return scan.inodes
 
 
+def home_has_credential(scan: Scan) -> bool:
+    """Does any credential path of _CRED_COMPONENTS exist under the home directory? (Round 4:
+    a listing of the home directory is refused only where it would list one.)"""
+    if scan.has_cred is None:
+        home = os.path.expanduser("~")
+        scan.has_cred = any(os.path.lexists(posixpath.join(home, *e)) for e in _CRED_COMPONENTS)
+    return scan.has_cred
+
+
 def hard_link_hit(path: str, scan: Scan) -> bool:
     """A regular file with more than one link that is the same inode as a credential file."""
     try:
@@ -424,6 +434,12 @@ _CRED_NAMES: Final = frozenset(n for e in _CRED_COMPONENTS for n in e)
 def _could_name_credential(part: str) -> bool:
     """Could the wildcard name `part` expand to the name of a credential file or directory?"""
     return any(_shell_match(part, n) for n in _CRED_NAMES)
+
+
+def name_could_be_credential(pattern: str) -> bool:
+    """Could a shell pattern (a `find -name` value) match the name of a credential file or
+    directory? Round 4: a name-filtered listing is judged by its filter."""
+    return _could_name_credential(pattern)
 
 
 def glob_rule(raw: str, scan: Scan) -> str | None:
