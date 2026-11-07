@@ -16,9 +16,13 @@ holding an expansion, glob, brace, backslash, ``$'..'`` or other form the guard 
 then allows only the options each reader command lists in ``OPTION_ALLOWLIST``. Workspace-write
 mode compares path parts after folding ``.``, ``..`` and repeated slashes, looks inside
 ``key=value`` words, treats a word that an expansion or glob could turn into a protected name as a
-hit, and fails closed on text it cannot scan. Known gaps: an interpreter that builds a path at run
-time (``python -c``), a symlink created in the same command, and ``git diff`` programs chosen by
-repository attributes.
+hit, and fails closed on text it cannot scan. It also refuses writers that act on the working
+directory without naming a file once ``cd`` has entered a protected directory, git commands that
+rewrite tracked files, hard links to protected files, symlinks made and used in one command, and
+function definitions in a command that also changes directory. Known gaps: an interpreter that
+builds a path at run time (``python -c``), an archive or patch run at the workspace root that
+names a protected file, and ``git diff`` programs chosen by repository attributes. Read-only mode
+leaves protected files readable by design.
 """
 
 from __future__ import annotations

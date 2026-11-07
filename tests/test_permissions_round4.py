@@ -448,8 +448,10 @@ def test_a_link_to_a_protected_directory_is_followed_in_a_later_command(lab: Pat
 FUNCTION_CD = [  # the definition moves the guard's tracked directory, the call moves bash's
     "cd sub; f() if cd ../.claude; then :; fi; cd ../sub; f; echo x > settings.json",
     "cd sub; f() while cd ../.claude; do break; done; cd ../sub; f; echo x > settings.json",
-    "pushd sub >/dev/null; f() if pushd ../.claude >/dev/null; then :; fi; "
-    "pushd ../sub >/dev/null; f; echo x > settings.json",
+    (
+        "pushd sub >/dev/null; f() if pushd ../.claude >/dev/null; then :; fi; "
+        "pushd ../sub >/dev/null; f; echo x > settings.json"
+    ),
     "cd sub; function f if cd ../.claude; then :; fi; cd ../sub; f; echo x > settings.json",
     "cd sub; f () if cd ../.claude; then :; fi; cd ../sub; f; tar -xf ../a.tar",
 ]
