@@ -89,12 +89,17 @@ def frontmatter(path: Path, text: str) -> dict[str, str] | None:
     data: dict[str, str] = {}
     key = ""
     for line in lines[1 : lines.index("---", 1)]:
+        if key and line.lstrip().startswith("#") and line[:1] in (" ", "\t"):
+            continue  # a YAML comment line inside a multi-line value is not part of the value
         m = KEY_RE.match(line)
         if m:
             key = m.group(1)
             data[key] = m.group(2).strip()
         elif key and (line.startswith((" ", "\t", "- ")) or not line.strip()):
-            data[key] = (data[key] + " " + line.strip()).strip()
+            item = line.strip()
+            if item.startswith("-"):  # a trailing comment on a list item ends that item only
+                item = re.split(r"\s#", item, maxsplit=1)[0].strip()
+            data[key] = (data[key] + " " + item).strip()
         elif not line.lstrip().startswith("#"):
             report("ERROR", path, "frontmatter", f"unparseable line: {line[:60]!r}")
             return None
@@ -257,7 +262,7 @@ def check_provenance(path: Path, data: dict[str, str], today: date) -> None:
         report("WARN", path, "verified-stale", msg)
 
 
-ASK_RE = re.compile(r"^#{2,3}\s+Ask before an outside effect\s*$")
+ASK_RE = re.compile(r"^#{1,3}\s+Ask before an outside effect\s*[.:!]*\s*$", re.IGNORECASE)
 
 
 def check_explicit(path: Path, data: dict[str, str], text: str) -> None:
@@ -276,17 +281,32 @@ def has_ask_first(text: str) -> bool:
     return any(ASK_RE.match(line) for _, line in prose(text))
 
 
-SENDER_RE = re.compile(r"approved list", re.IGNORECASE)  # the sending worker's file says this
+# The sender is marked by a line of its own that starts "Sending worker" and says "approved list".
+SENDER_RE = re.compile(r"^\s*(?:[-*]\s+)?sending worker\b.*\bapproved list\b", re.IGNORECASE)
 NEGATION_RE = re.compile(r"\b(never|not|no|without)\b|n't\b", re.IGNORECASE)
-READ_TOOL_RE = re.compile(r"mcp__[^_].*?__(search|get|list|read|fetch|query|lookup|find|describe)")
-READ_ONLY_RE = re.compile(r"read[- ]only|research", re.IGNORECASE)
+READ_VERBS = {"search", "get", "list", "read", "fetch", "query", "lookup", "find", "describe"}
+WRITE_WORDS = {  # any of these in a tool name makes it more than a read
+    "and", "then", "or", "update", "delete", "post", "send", "create", "write", "set", "put", "patch",
+    "add", "remove", "insert", "upsert", "submit", "publish", "pay", "run", "exec", "execute", "call",
+    "make", "stamp", "manage", "link", "input", "change", "schedule", "move", "merge", "sync", "reset",
+}  # fmt: skip
+READ_ONLY_RE = re.compile(r"read[- ]only", re.IGNORECASE)
+
+
+def is_read_tool(name: str) -> bool:
+    """A connector tool is read-only only if its whole name is a read verb plus plain nouns."""
+    tail = name.split("__")[-1] if name.startswith("mcp__") and name.count("__") >= 2 else ""
+    words = tail.split("_")
+    plain = bool(tail) and all(re.fullmatch(r"[a-z0-9]+", w) for w in words)
+    return plain and words[0] in READ_VERBS and not WRITE_WORDS & set(words)
 
 
 def body_lines(text: str) -> list[str]:
-    """Prose lines of the agent body: after the frontmatter, outside code fences."""
+    """Prose lines of the agent body: after the frontmatter, outside code fences and HTML comments."""
     lines = text.splitlines()
     end = lines.index("---", 1) if "---" in lines[1:] else -1
-    return [line for _, line in prose("\n".join(lines[end + 1 :]))]
+    body = re.sub(r"<!--.*?-->", "", "\n".join(lines[end + 1 :]), flags=re.DOTALL)
+    return [line for _, line in prose(body)]
 
 
 def tool_names(raw: str) -> list[str]:
@@ -299,10 +319,11 @@ def check_connector_scope(path: Path, data: dict[str, str], text: str) -> None:
     """In a harness whose orchestrator has the Ask-first block, only the sending worker may hold
     connector tools. A worker with no `tools:` line inherits every tool, connectors included, and
     one that lists `mcp__` tools can call them without the orchestrator's yes. The sender is the
-    agent whose body prose (not frontmatter, not a code fence) has an "approved list" line with no
-    negation (Step 3 wording); there is no sturdier marker, because `## Required connectors` lines
-    must stay bare server names. A read-only research worker that lists only read-style connector
-    tools (search, get, list, ...) is not warned: it cannot send."""
+    agent whose body prose (not frontmatter, not a code fence, not an HTML comment) has a line that
+    starts "Sending worker" and says "approved list", with no negation (Step 3 wording); there is no
+    sturdier marker, because `## Required connectors` lines must stay bare server names. A worker
+    whose body says "read-only" and that lists only connector tools named by one read verb (search,
+    get, list, ... and no write word such as and, update, send) is not warned: it cannot send."""
     lines = body_lines(text)
     if any(SENDER_RE.search(ln) and not NEGATION_RE.search(ln) for ln in lines):
         return
@@ -316,7 +337,7 @@ def check_connector_scope(path: Path, data: dict[str, str], text: str) -> None:
     else:
         mcp = [t for t in tools if t.startswith("mcp__")]
         read_only = any(READ_ONLY_RE.search(ln) and not NEGATION_RE.search(ln) for ln in lines)
-        if not mcp or (read_only and all(READ_TOOL_RE.match(t) for t in mcp)):
+        if not mcp or (read_only and all(is_read_tool(t) for t in mcp)):
             return
         why = "lists mcp__ tools"
     msg = f"worker {why} but is not the sending worker"
@@ -378,7 +399,7 @@ def main(argv: list[str]) -> int:
     if not agents and not skills:
         report("ERROR", root, "empty", "no agents/*.md or skills/*/SKILL.md (pass the .claude dir)")
     today = datetime.now().astimezone().date()  # local calendar day
-    asks = any(has_ask_first(read_quiet(p)) for p in skills)
+    asks = any(has_ask_first(read_quiet(p)) for p in root.glob("skills/**/SKILL.md"))
     names: set[str] = set()
     owners: dict[tuple[bool, str], list[Path]] = {}
     texts: dict[Path, str] = {}
