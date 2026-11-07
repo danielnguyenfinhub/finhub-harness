@@ -440,13 +440,165 @@ def test_du_and_find_in_a_real_shell_list_the_credential_paths(home: Path) -> No
     assert out is not None and ".ssh/id_rsa" in out
 
 
+# --- (6) credential paths named in an inline interpreter program ------------------------------------
+
+PROGRAMS = [
+    ("python3", "-c", "print(open('.ssh/id_rsa').read())"),
+    ("python3", "-c", "print(open(\".aws/credentials\").read())"),
+    ("python3", "-c", "import os;print(open(os.path.join('.ssh', 'id_rsa')).read())"),
+    ("python3", "-c", "print(open('.ss'+'h/id_rsa').read())"),
+    ("python3", "-c", "print(open('.ssh'+'/'+'id_'+'rsa').read())"),
+    ("python3", "-c", "from pathlib import Path;print(Path('.ssh/id_rsa').read_text())"),
+    ("python3", "-c", "from pathlib import Path;print((Path('.ssh')/'id_rsa').read_text())"),
+    ("python3", "-c", "print(open('.config/gh/hosts.yml').read())"),
+    ("python3", "-c", "print(open('.ssh/known_hosts').read())"),
+    ("python3", "-Ic", "print(open('.ssh/id_rsa').read())"),
+    ("perl", "-e", "open F,'<.ssh/id_rsa';print <F>"),
+    ("perl", "-e", "print `cat .ssh/id_rsa`"),
+    ("perl", "-E", "say `cat .ssh/id_rsa`"),
+    ("perl", "-ne", "print if 1' .ssh/id_rsa"),
+    ("ruby", "-e", "puts File.read('.ssh/id_rsa')"),
+    ("ruby", "-e", "puts File.read(File.join('.ssh', 'id_rsa'))"),
+    ("node", "-e", "console.log(require('fs').readFileSync('.ssh/id_rsa','utf8'))"),
+    ("node", "--eval", "console.log(require('fs').readFileSync('.ssh/id_rsa','utf8'))"),
+    ("node", "-p", "require('fs').readFileSync('.ssh/id_rsa','utf8')"),
+    ("node", "-e", "console.log(require('fs').readFileSync(`.ssh/id_rsa`,'utf8'))"),
+    ("php", "-r", "echo file_get_contents('.ssh/id_rsa');"),
+]  # fmt: skip
+
+BENIGN_PROGRAMS = [
+    ("python3", "-c", "print(1)"),
+    ("python3", "-c", "print(open('notes.txt').read())"),
+    ("python3", "-c", "import json; print(json.dumps({'a': 'b/c'}))"),
+    ("python3", "-c", "import re; print(re.sub(r'[a-z]+', 'x', 'abc'))"),
+    ("python3", "-c", "print('hello world')"),
+    ("perl", "-e", "print 1"),
+    ("perl", "-e", "print 'a/b'"),
+    ("ruby", "-e", "puts 'hi'"),
+    ("node", "-e", "console.log('hi')"),
+    ("node", "-p", "1+1"),
+    ("php", "-r", "echo 'hi';"),
+    ("python3", "-c", "print(open('projects/a.txt').read())"),
+]  # fmt: skip
+
+
+def _quote(s: str) -> str:
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+@pytest.mark.parametrize("prog", PROGRAMS, ids=[p[2][:40] for p in PROGRAMS])
+def test_an_inline_program_that_names_a_credential_path_is_refused(
+    prog: tuple[str, str, str],
+) -> None:
+    exe, flag, body = prog
+    assert denied(f"{exe} {flag} {_quote(body)}"), body
+    assert denied(f"env X=1 {exe} {flag} {_quote(body)}"), body
+    assert denied(f"sudo -u nobody {exe} {flag} {_quote(body)}"), body
+    attached = f"{exe} {flag}{_quote(body)}" if len(flag) == 2 else None
+    if attached:
+        assert denied(attached), body
+
+
+@pytest.mark.parametrize(
+    "prog", [p for p in PROGRAMS if "print if 1" not in p[2]], ids=lambda p: p[2][:30]
+)
+def test_the_program_really_reads_the_credential_in_a_real_interpreter(
+    prog: tuple[str, str, str], home: Path
+) -> None:
+    """Why these are refused: run from the home directory, the interpreter prints the file."""
+    exe, flag, body = prog
+    if exe == "python3":
+        exe = sys.executable
+    if shutil.which(exe) is None and not Path(exe).exists():
+        pytest.skip(f"{exe} not installed")
+    r = subprocess.run(
+        [exe, flag, body], cwd=home, capture_output=True, text=True, timeout=20, check=False
+    )
+    if "known_hosts" in body or "hosts.yml" in body or "credentials" in body:
+        assert r.stdout.strip() in ("k", "t", "c"), (body, r.stdout, r.stderr)
+    else:
+        assert r.stdout.strip() == "k", (body, r.stdout, r.stderr)
+
+
+@pytest.mark.parametrize("prog", BENIGN_PROGRAMS, ids=lambda p: p[2][:30])
+def test_an_inline_program_without_a_credential_path_is_allowed(prog: tuple[str, str, str]) -> None:
+    exe, flag, body = prog
+    assert not denied(f"{exe} {flag} {_quote(body)}"), body
+
+
+@pytest.mark.parametrize(
+    "name,args,bodies",
+    [
+        ("python3", ["-c", "A"], ["A"]),
+        ("python3.12", ["-c", "A"], ["A"]),
+        ("python3", ["-cA"], ["A"]),
+        ("python3", ["-Ic", "A"], ["A"]),
+        ("perl", ["-lne", "A"], ["A"]),
+        ("perl", ["-E", "A"], ["A"]),
+        ("perl", ["-eA"], ["A"]),
+        ("ruby", ["-e", "A"], ["A"]),
+        ("node", ["--eval", "A"], ["A"]),
+        ("node", ["--eval=A"], ["A"]),
+        ("node", ["-p", "A"], ["A"]),
+        ("node", ["--print", "A"], ["A"]),
+        ("php", ["-r", "A"], ["A"]),
+        ("python3", ["x.py", "-c"], []),
+        ("python3", ["-m", "pytest"], []),
+        ("cat", ["-c", "A"], []),
+        ("python3", ["--check", "A"], []),
+    ],
+)
+def test_the_program_text_is_found_by_the_flag_of_each_interpreter(
+    name: str, args: list[str], bodies: list[str]
+) -> None:
+    assert new._script_bodies(name, args) == bodies
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "open('.ss'+'h/known_hosts')",  # joined with nothing
+        "join('.config','gh','hosts.yml')",  # joined with a slash
+        "'.s'+'s'+'h'+'/known_hosts'",  # four literals
+        "`.ss`+`h/known_hosts`",  # template strings
+        "open F,<.ssh/known_hosts>",  # no quotes at all
+        'open(".ssh/known_hosts")',
+        "open('~/.aws/credentials')",
+    ],
+)
+def test_each_way_of_spelling_a_path_in_a_program_is_read(body: str) -> None:
+    assert new._script_literals_rule("python3", ["-c", body]) == "sensitive-path", body
+
+
+def test_a_program_file_and_other_flags_are_not_inline_programs() -> None:
+    assert not denied("python3 script.py a/b")
+    assert not denied("python3 -m pytest tests/test_a.py")
+    assert not denied("node build.js")
+    assert not denied("python3 -c")  # a flag with no program
+
+
+def test_a_long_program_with_many_literals_stays_fast() -> None:
+    body = "x=[" + ",".join(f"'s{i}'" for i in range(1500)) + "]"
+    t0 = time.process_time()
+    check_rule(f"python3 -c {_quote(body)}"[:10_000])
+    assert time.process_time() - t0 < 0.5
+
+
 # --- known residuals that stay documented (R1-R7 of the 2026-10-21 row, unchanged) --------------
 
 
-def test_a_computed_interpreter_path_stays_out_of_reach() -> None:
-    """Documented: the guard reads text, so a path an interpreter builds at run time is allowed."""
-    body = "import os; open(os.path.join(os.environ['HOME'], chr(46) + 'ss' + 'h', 'id_' + 'rsa'))"
-    assert check_rule(f'python3 -c "{body}"') is None
+def test_a_computed_interpreter_path_stays_out_of_reach(home: Path) -> None:
+    """Documented: the guard reads text, so a path an interpreter builds at run time is allowed
+    (and it does read the file)."""
+    parts = (
+        "d = bytes([46, 115, 115, 104]).decode(); f = bytes([105, 100, 95, 114, 115, 97]).decode()"
+    )
+    body = f"import os; {parts}; print(open(os.path.join(os.environ['HOME'], d, f)).read())"
+    assert check_rule(f"python3 -c {_quote(body)}") is None
+    r = subprocess.run(
+        [sys.executable, "-c", body], capture_output=True, text=True, timeout=20, check=False
+    )
+    assert r.stdout.strip() == "k"
 
 
 # --- the differential against the guard before this round ---------------------------------------

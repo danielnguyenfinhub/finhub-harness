@@ -1132,6 +1132,78 @@ def _quoted_subst_rule(words: list[str], joined: str, state: _State) -> str | No
     return None
 
 
+SCRIPT_FAMILIES: Final = re.compile(
+    r"(?P<py>python[\d.]*)|(?P<pl>perl[\d.]*)|(?P<rb>ruby[\d.]*)|(?P<js>node(?:js)?)"
+    r"|(?P<php>php[\d.]*)|(?P<lua>lua(?:jit)?[\d.]*)"
+)
+SCRIPT_FLAGS: Final[Mapping[str, str]] = {
+    "py": "c", "pl": "eE", "rb": "e", "js": "ep", "php": "r", "lua": "e",
+}  # fmt: skip
+SCRIPT_LONG: Final = ("--eval", "--print", "--exec")
+QUOTED_RE: Final = re.compile(
+    r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`", re.DOTALL
+)
+PIECE_RE: Final = re.compile(r"[^\s'\"`(),;<>|&=\[\]{}]+")
+MAX_SCRIPT_LITERALS: Final = 256  # literals joined with their neighbours
+MAX_SCRIPT_WINDOW: Final = 4
+
+
+def _script_bodies(name: str, args: list[str]) -> list[str]:
+    """Round 4 (item 6): the inline program texts of `python -c`, `perl -e`, `ruby -e`,
+    `node -e`, `php -r` and `lua -e` (the cluster `-lne`, an attached `-ecode` and `--eval` too)."""
+    m = SCRIPT_FAMILIES.fullmatch(name)
+    if m is None or m.lastgroup is None:
+        return []
+    letters, bodies = SCRIPT_FLAGS[m.lastgroup], []
+    for i, a in enumerate(args):
+        if a.startswith("--"):
+            flag, eq, val = a.partition("=")
+            if flag in SCRIPT_LONG and m.lastgroup == "js":
+                if eq:
+                    bodies.append(val)
+                elif i + 1 < len(args):
+                    bodies.append(args[i + 1])
+            continue
+        if a.startswith("-") and len(a) > 1:
+            k = next((n for n, c in enumerate(a[1:]) if c in letters), None)
+            if k is None:
+                continue
+            if k + 2 < len(a):
+                bodies.append(a[k + 2 :])  # `-cCODE`, `-ecode`
+            elif i + 1 < len(args):
+                bodies.append(args[i + 1])
+    return bodies
+
+
+def _script_candidates(body: str) -> set[str]:
+    """Path-shaped texts in a program: every quoted literal, every run of path characters, and
+    the literals of neighbouring strings joined with `/` and with nothing (`join(h, '.ssh', 'id')`,
+    `'.ss' + 'h'`). A computed path (`chr(46)`, a variable read) stays out of reach."""
+    lits = [q[1:-1] for q in QUOTED_RE.findall(body)]
+    out = {
+        x
+        for x in [*lits, *PIECE_RE.findall(body), *(p for q in lits for p in PIECE_RE.findall(q))]
+        if x
+    }
+    head = lits[:MAX_SCRIPT_LITERALS]
+    for size in range(2, MAX_SCRIPT_WINDOW + 1):
+        for i in range(len(head) - size + 1):
+            part = head[i : i + size]
+            out.add("/".join(part))
+            out.add("".join(part))
+    return out
+
+
+def _script_literals_rule(name: str, args: list[str]) -> str | None:
+    """'sensitive-path' when an inline program of a scripting interpreter names a credential path
+    in its text, relative (`.ssh/id_rsa`) or joined from literals."""
+    for body in _script_bodies(name, args):
+        for cand in _script_candidates(body):
+            if _sp.sensitive_rule(cand, resolve=False, max_chars=MAX_COMMAND_CHARS):
+                return "sensitive-path"
+    return None
+
+
 def _unscannable(words: list[str], core: list[str], name: str, args: list[str]) -> bool:
     """xargs, find -exec of a shell: the paths are not in the text. (A substitution naming a
     credential location is judged in _check_tokens.)"""
@@ -1419,6 +1491,8 @@ def _core_rule(words: list[str], core: list[str], state: _State) -> str | None:
     if is_interpreter(name) and any(a.removeprefix("./") in state.downloaded for a in args):
         return "run-downloaded-script"
     rule = _inline_rule(name, args, state.depth, state.sensitive)
+    if rule is None and state.sensitive:
+        rule = _script_literals_rule(name, args)
     if rule is None and state.sensitive and _unscannable(words, core, name, args):
         return "unscannable-path"
     return rule
