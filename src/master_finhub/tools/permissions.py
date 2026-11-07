@@ -23,7 +23,9 @@ repository attributes.
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -32,6 +34,7 @@ from typing import Final, Literal
 from master_finhub.runtime.loop import ToolCall, ToolGuard
 from master_finhub.sandbox.workspace import SandboxDenied, Workspace
 from master_finhub.tools.safety import guard_tool_call
+from master_finhub.tools.sensitive_paths import is_sensitive_path
 
 Mode = Literal["read-only", "workspace-write", "full-access"]
 ToolClass = Literal["read", "write", "shell"]
@@ -133,9 +136,11 @@ INTERPRETERS: Final = frozenset(
 )
 _WRITER_RE: Final = re.compile(
     r"(?<![\w./-])(dd|tee|cp|mv|install|ln|rm|truncate|sed|rsync|tar|chmod|chown|touch|mkdir|"
-    r"unzip|patch|curl|wget|python3?|perl|ruby|node|sh|bash|dash|zsh|eval|awk|env|xargs)(?![\w-])"
+    r"unzip|patch|curl|wget|python3?|perl|ruby|node|sh|bash|dash|zsh|eval|awk|env|xargs|unlink|"
+    r"shred|gzip|bzip2|xz|zstd|cpio|ed|rmdir|rename|split|zip|vi|vim|nano|emacs)(?![\w-])"
     r"|(?<![\w./-])git\s+(config|reset|clean|stash|branch|update-ref|hook|commit|apply|checkout|"
-    r"restore|add|mv|rm)(?![\w-])"
+    r"restore|add|mv|rm|remote|worktree|submodule|gc|notes|replace|filter-branch|reflog|"
+    r"symbolic-ref|tag|merge|rebase|pull|fetch|cherry-pick|revert|am|init|update-index)(?![\w-])"
 )
 
 
@@ -505,7 +510,7 @@ def _scan(cmd: str) -> list[Item] | None:
                 i = j + 1
         elif c == "~":
             at_start = word is None or not word.pieces
-            plain = at_start and (i + 1 >= n or cmd[i + 1] == "/")
+            plain = at_start and (i + 1 >= n or cmd[i + 1] in "/ \t\n;&|)")
             prev = cmd[i - 1] if i else " "
             add("L", "~", risky=not plain and (at_start or prev in "=:"))
             i += 1
@@ -560,16 +565,24 @@ def _scan(cmd: str) -> list[Item] | None:
 
 
 def _check_options(
-    cmd: str, args: Sequence[str], spec: tuple[dict[str, str], dict[str, str]]
+    cmd: str,
+    args: Sequence[str],
+    spec: tuple[dict[str, str], dict[str, str]],
+    operands: list[str] | None = None,
 ) -> str | None:
+    """None if every option is on the allowlist; the non-option words go to ``operands``."""
     short, long = spec
     i = 0
     while i < len(args):
         a = args[i]
         i += 1
         if a == "--":
+            if operands is not None:
+                operands.extend(args[i:])
             return None
         if a == "-" or not a.startswith("-"):
+            if operands is not None:
+                operands.append(a)
             continue
         if a.startswith("--"):
             name, eq, _ = a[2:].partition("=")
@@ -607,18 +620,86 @@ def _find_denial(args: Sequence[str]) -> str | None:
 
 
 def _date_sets_clock(args: Sequence[str]) -> bool:
-    skip = False
-    for a in args:
-        if skip:
-            skip = False
-        elif a in ("-d", "-r", "--date", "--reference", "--rfc-3339"):
-            skip = True
-        elif not a.startswith(("-", "+")):
+    i = 0
+    while i < len(args):
+        a = args[i]
+        i += 1
+        if a.startswith("--") and a != "--":
+            if a[2:] in ("date", "reference", "rfc-3339"):
+                i += 1  # the value is the next word
+        elif a.startswith("-") and a != "-":
+            for j, c in enumerate(a[1:], 1):
+                if c in "dr":  # -d/-r take the rest of the cluster, or the next word
+                    i += j == len(a) - 1
+                    break
+                if c == "I":
+                    break
+        elif not a.startswith("+"):
             return True  # a bare operand such as 010112002026 sets the clock
     return False
 
 
-def _segment_denial(seg: Sequence[str]) -> str | None:
+def _start_dirs(cmd: str, args: Sequence[str]) -> list[str] | None:
+    """The words a recursive reader walks below (``.`` when it names none), None if it is not
+    recursive. rg and find always are; grep, diff and ls only with -r / -R."""
+    shorts = "".join(a[1:] for a in args if a.startswith("-") and not a.startswith("--"))
+    longs = {a[2:].split("=", 1)[0] for a in args if a.startswith("--") and a != "--"}
+    if cmd == "find":
+        ops: list[str] = []
+        for a in args:
+            if a.startswith("-") and a != "-":
+                break
+            ops.append(a)
+        return ops or ["."]
+    rec = {
+        "rg": True,
+        "grep": bool(set(shorts) & set("rR"))
+        or bool({"recursive", "dereference-recursive"} & longs),
+        "diff": "r" in shorts or "recursive" in longs,
+        "ls": "R" in shorts or "recursive" in longs,
+    }
+    if not rec.get(cmd):
+        return None
+    ops = []
+    _check_options(cmd, args, OPTION_ALLOWLIST[cmd], ops)
+    if cmd in ("grep", "rg") and not (
+        set(shorts) & set("ef") or {"regexp", "file", "files"} & longs
+    ):
+        ops = ops[1:]  # the first word is the pattern
+    return ops or ["."]
+
+
+def _path_denial(cmd: str, args: Sequence[str], root: Path) -> str | None:
+    """Credential paths named by a reader, and recursive readers that would start at the home
+    directory or above the workspace. A start inside the workspace is allowed, so protected
+    files there stay readable in read-only mode."""
+    for a in args:
+        if not a.startswith("-") and is_sensitive_path(a):
+            return "it names a credential path"
+    starts = _start_dirs(cmd, args)
+    if starts is None:
+        return None
+    rr, home = root.resolve(), Path.home().resolve()
+    for raw in starts:
+        try:
+            real = rr.joinpath(os.path.expanduser(raw)).resolve()
+        except (OSError, RuntimeError):
+            return "a recursive reader's start directory cannot be resolved"
+        if real == home or real in home.parents or real in rr.parents:
+            return "a recursive reader would start at the home directory or above the workspace"
+    return None
+
+
+def _segment_denial(seg: Sequence[str], root: Path | None = None) -> str | None:
+    """Why one command of a chain is not a plain read, or None. With a ``root``, credential
+    paths and recursive readers aimed at the home directory or above the workspace are refused."""
+    why = _syntax_denial(seg)
+    if why or root is None:
+        return why
+    return _path_denial(seg[0], seg[1:], root)
+
+
+def _syntax_denial(seg: Sequence[str]) -> str | None:
     """Why one command of a chain is not a plain read, or None."""
     if not seg:
         return "empty command in a chain"
@@ -640,7 +721,7 @@ def _segment_denial(seg: Sequence[str]) -> str | None:
     return None
 
 
-def _reader_denial(command: str) -> str | None:
+def _reader_denial(command: str, root: Path | None = None) -> str | None:
     items = _scan(command.strip())
     if not items:
         return "command is empty or cannot be judged read-only"
@@ -659,7 +740,7 @@ def _reader_denial(command: str) -> str | None:
         else:
             return "redirect, background, subshell or comment cannot be judged read-only"
     for seg in segs:
-        why = _segment_denial(seg)
+        why = _segment_denial(seg, root)
         if why:
             return why
     return None
@@ -667,9 +748,63 @@ def _reader_denial(command: str) -> str | None:
 
 # --- workspace-write: protected paths -----------------------------------------------------
 
+MAX_PIECES: Final = 128  # a word with more expansion/glob pieces is refused, not matched
+MAX_DEPTH: Final = 3  # nested `sh -c '...'` bodies that are followed
+PROTECTED_WHY: Final = "it touches a protected file"
+COMPLEX_WHY: Final = "a word has too many expansion or glob pieces to check"
+UNKNOWN_CWD_WHY: Final = (
+    "the working directory is unknown after a cd the guard cannot follow, so it cannot tell "
+    "whether a relative name is a protected file"
+)
+_ASSIGN_RE: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
+# Commands that run another command (or keywords that start one): the guard looks through them.
+# The value is the short-option letters that take a value.
+_WRAPPERS: Final[dict[str, str]] = {
+    "command": "",
+    "builtin": "",
+    "env": "uCS",
+    "nice": "n",
+    "ionice": "cnp",
+    "stdbuf": "ioe",
+    "setsid": "",
+    "sudo": "ughCDRTUrtp",
+    "doas": "uC",
+    "exec": "a",
+    "time": "",
+    "nohup": "",
+    "timeout": "sk",
+    "xargs": "IJnPdLsEa",
+    "busybox": "",
+    **dict.fromkeys(["{", "!", "if", "then", "do", "else", "elif", "while", "until"], ""),
+}
+_WRAP_LONG: Final = frozenset(
+    ["user", "group", "chdir", "unset", "host", "prompt", "signal", "kill-after", "priority"]
+)
+# Wrappers the guard cannot see through: refused rather than guessed.
+_UNKNOWN_WRAPPERS: Final = frozenset(
+    ["chroot", "setpriv", "unshare", "nsenter", "runuser", "su", "strace", "ltrace", "fakeroot",
+     "watch", "parallel", "ssh", "sg", "pkexec", "systemd-run", "bwrap", "firejail", "taskset",
+     "chrt", "flock", "proot", "cpulimit", "script"]
+)  # fmt: skip
+_SHELLS: Final = frozenset(["sh", "bash", "dash", "zsh", "ksh"])
+GIT_REWRITE: Final = frozenset(
+    ["config", "hook", "update-ref", "clean", "notes", "replace", "filter-branch", "filter-repo",
+     "gc", "prune", "repack", "worktree", "submodule", "update-index", "symbolic-ref",
+     "maintenance"]
+)  # fmt: skip
+GIT_REMOTE_WRITE: Final = frozenset(
+    ["add", "set-url", "rename", "remove", "rm", "set-head", "prune", "update", "set-branches"]
+)
+GIT_BRANCH_LONG: Final = (
+    "delete", "move", "copy", "force", "edit-description", "set-upstream-to", "unset-upstream",
+)  # fmt: skip
 
-def _split_parts(pieces: Sequence[Piece]) -> list[list[Piece]]:
-    """Path parts of a word: split on literal "/", drop "" and ".", fold ".." textually."""
+
+def _split_parts(pieces: Sequence[Piece], base: Sequence[str] = ()) -> list[list[Piece]]:
+    """Path parts of a word: split on literal "/", drop "" and ".", fold ".." textually.
+
+    ``base`` is the tracked working directory a relative word starts from. A ".." with nothing to
+    pop is kept: it leaves the workspace and must not vanish."""
     parts: list[list[Piece]] = [[]]
     for kind, text in pieces:
         if kind != "L":
@@ -680,34 +815,62 @@ def _split_parts(pieces: Sequence[Piece]) -> list[list[Piece]]:
                 parts.append([])
             if seg:
                 parts[-1].append(("L", seg))
-    out: list[list[Piece]] = []
+    absolute = bool(pieces) and pieces[0][0] == "L" and pieces[0][1].startswith("/")
+    out: list[list[Piece]] = [] if absolute else [[("L", b)] for b in base]
     for p in parts:
         lit = "".join(t for _, t in p) if all(k == "L" for k, _ in p) else None
         if not p or lit == ".":
             continue
         if lit == "..":
-            if out:
+            if out and out[-1] != [("L", "..")]:
                 out.pop()
+            else:
+                out.append(p)
             continue
         out.append(p)
     return out
 
 
+_BRACE_FLAT: Final = re.compile(r"[\w.@+-]*")
+
+
+def _brace_alternatives(text: str) -> list[str] | None:
+    """What a brace expansion ``{a,b}`` can be: its alternatives. ``{x}`` and ``{}`` are not
+    expanded by the shell and stay as typed. None when it cannot be listed (nested, a sequence
+    ``{1..3}``, a quote or a variable inside): it then stands for anything."""
+    if not (text.startswith("{") and text.endswith("}")):
+        return None
+    inner = text[1:-1]
+    if not _BRACE_FLAT.fullmatch(inner.replace(",", "")):
+        return None
+    if "," in inner:
+        return inner.split(",")
+    return None if ".." in inner else [text]
+
+
 def _part_matches(part: Sequence[Piece], want: str) -> bool:
+    """Can this path part, with its globs and expansions, be the name ``want``? Linear time."""
     if all(k == "L" for k, _ in part):
         return "".join(t for _, t in part).casefold() == want
-    rx = ""
-    for kind, text in part:
-        if kind == "L":
-            rx += re.escape(text.casefold())
-        elif kind == "X" or text == "*":
-            rx += ".*"
-        else:
-            rx += "."
     # a real glob never matches a leading dot; an expansion can produce one
     if part[0][0] == "G" and want.startswith(".") and all(k != "X" for k, _ in part):
         return False
-    return re.fullmatch(rx, want, re.DOTALL) is not None
+    n = len(want)
+    at = {0}  # positions in ``want`` reachable after the pieces so far
+    for kind, text in part:
+        if kind == "L":
+            low = text.casefold()
+            at = {p + len(low) for p in at if want.startswith(low, p)}
+        elif kind == "X" and (alts := _brace_alternatives(text)) is not None:
+            lows = [alt.casefold() for alt in alts]
+            at = {p + len(low) for p in at for low in lows if want.startswith(low, p)}
+        elif kind == "X" or text == "*":
+            at = set(range(min(at), n + 1)) if at else set()
+        else:
+            at = {p + 1 for p in at if p < n}
+        if not at:
+            return False
+    return n in at
 
 
 def _parts_hit(parts: Sequence[Sequence[Piece]], protected: Sequence[str]) -> bool:
@@ -717,6 +880,25 @@ def _parts_hit(parts: Sequence[Sequence[Piece]], protected: Sequence[str]) -> bo
         for i in range(len(parts) - n + 1):
             if all(_part_matches(parts[i + j], want[j]) for j in range(n)):
                 return True
+    return False
+
+
+def _covers(parts: Sequence[Sequence[Piece]], protected: Sequence[str], *, root_too: bool) -> bool:
+    """Is this path a protected entry's ancestor (or the entry itself)? Deleting, renaming or
+    replacing such a directory removes the protected entry. ``root_too``: the workspace root
+    (no parts), and a path made only of ``..``, count as ancestors of everything."""
+    if parts and all(
+        all(k == "L" for k, _ in p) and "".join(t for _, t in p) == ".." for p in parts
+    ):
+        return True
+    if not parts:
+        return root_too
+    for entry in protected:
+        want = [p.casefold() for p in PurePosixPath(entry).parts]
+        if len(parts) <= len(want) and all(
+            _part_matches(parts[i], want[i]) for i in range(len(parts))
+        ):
+            return True
     return False
 
 
@@ -737,23 +919,47 @@ def _candidates(pieces: Sequence[Piece]) -> list[Sequence[Piece]]:
     return out
 
 
-def _word_hits(word: _Word, protected: Sequence[str], root: Path, *, split: bool = True) -> bool:
-    if any(_parts_hit(_split_parts(c), protected) for c in _candidates(word.pieces)):
+Cwd = tuple[str, ...] | None  # tracked working directory below the workspace root; None unknown
+
+
+def _real_parts(text: str, cwd: Cwd, root: Path) -> tuple[str, ...] | None:
+    """The word's real location below the workspace root (symlinks followed), or None."""
+    if not text or len(text) >= 1024 or "\x00" in text or "\n" in text:
+        return None
+    try:
+        rr = root.resolve()
+        return rr.joinpath(*(cwd or ()), text).resolve().relative_to(rr).parts
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def _forms(word: _Word, cwd: Cwd, root: Path) -> list[list[list[Piece]]]:
+    """Every reading of a word as path parts below the workspace root."""
+    out: list[list[list[Piece]]] = []
+    for cand in _candidates(word.pieces):
+        out.append(_split_parts(cand, cwd or ()))
+        if all(k == "L" for k, _ in cand):
+            real = _real_parts("".join(t for _, t in cand), cwd, root)
+            if real is not None:
+                out.append([[("L", p)] for p in real])
+    return out
+
+
+def _word_hits(word: _Word, protected: Sequence[str], root: Path, cwd: Cwd, *, split: bool) -> bool:
+    if any(_parts_hit(f, protected) for f in _forms(word, cwd, root)):
         return True
-    if not word.literal:
-        return False
-    text = word.text
-    if split:  # a path hidden in one quoted argument: "tee .env", "w .env"
+    if split and word.literal:  # a path hidden in one quoted argument: "tee .env", "w .env"
+        text = word.text
         for bit in re.split(r"[\s;<>|&\"'()=,:]+", text):
-            if bit and bit != text and _parts_hit(_split_parts([("L", bit)]), protected):
+            if bit and bit != text and _parts_hit(_split_parts([("L", bit)], cwd or ()), protected):
                 return True
-    if text and len(text) < 1024 and "\x00" not in text and "\n" not in text:
-        try:  # a symlink inside the workspace that points at a protected file
-            real = (root / text).resolve().relative_to(root.resolve())
-        except (OSError, ValueError, RuntimeError):
-            return False
-        return _is_protected(real.parts, protected)
     return False
+
+
+def _word_covers(
+    word: _Word, protected: Sequence[str], root: Path, cwd: Cwd, *, root_too: bool
+) -> bool:
+    return any(_covers(f, protected, root_too=root_too) for f in _forms(word, cwd, root))
 
 
 def _substring_hit(text: str, protected: Sequence[str]) -> bool:
@@ -761,49 +967,70 @@ def _substring_hit(text: str, protected: Sequence[str]) -> bool:
     return any(e.casefold() in low for e in protected)
 
 
+def _short_letters(texts: Sequence[str]) -> set[str]:
+    return {c for t in texts if t.startswith("-") and not t.startswith("--") for c in t[1:]}
+
+
+def _long_prefix(t: str, full: str) -> bool:
+    """Is ``t`` (a ``--x`` argument) an abbreviation of the long option ``--full``?"""
+    name = t[2:].split("=", 1)[0] if t.startswith("--") else ""
+    return bool(name) and full.startswith(name)
+
+
 def _is_recursive(texts: Sequence[str]) -> bool:
-    return any(
-        t == "--recursive" or (t.startswith("-") and not t.startswith("--") and set(t) & set("rR"))
-        for t in texts
+    return bool(_short_letters(texts) & set("rR")) or any(
+        _long_prefix(t, "recursive") for t in texts
     )
 
 
-def _reaches_root(word: _Word) -> bool:
-    return not word.literal or not _split_parts(word.pieces) or word.text.startswith("..")
-
-
-def _structural_denial(cmd: str, args: list[_Word]) -> str | None:
-    """Commands that reach or change protected files without naming them."""
-    texts = [w.text for w in args]
-    rm_reaches = cmd == "rm" and _is_recursive(texts)
-    if rm_reaches and any(not w.text.startswith("-") and _reaches_root(w) for w in args):
-        return "a recursive delete of a glob, an expansion or the workspace root"
-    if cmd == "find" and any(t.startswith(FIND_WRITE) for t in texts):
-        starts: list[_Word] = []
-        for w in args:
-            if w.text.startswith("-"):
+def _unwrap(seg: Sequence[_Word]) -> tuple[list[_Word], str, list[_Word], list[str]]:
+    """Split a command into (assignments and wrapper words, effective name, its arguments,
+    wrapper chain). The name is the basename of the first word that is not a wrapper; it is ""
+    when that word is not literal (then every remaining word is in the arguments)."""
+    prefix: list[_Word] = []
+    chain: list[str] = []
+    i, n = 0, len(seg)
+    while i < n and seg[i].literal:
+        w = seg[i]
+        if _ASSIGN_RE.match(w.text):
+            prefix.append(w)
+            i += 1
+            continue
+        base = PurePosixPath(w.text).name
+        if base not in _WRAPPERS:
+            break
+        chain.append(base)
+        prefix.append(w)
+        i += 1
+        vals = _WRAPPERS[base]
+        while i < n and seg[i].literal and seg[i].text.startswith("-") and seg[i].text != "-":
+            t = seg[i].text
+            prefix.append(seg[i])
+            i += 1
+            if t == "--":
                 break
-            starts.append(w)
-        if not starts or any(_reaches_root(w) for w in starts):
-            return "a find write or exec action over the workspace root, a glob or an expansion"
-    if cmd == "git":
-        k = 0
-        while k < len(texts) and texts[k].startswith("-"):
-            if texts[k] == "-c" or texts[k].startswith(
-                ("--config-env", "--exec-path", "--git-dir", "--work-tree")
-            ):
-                return "a git option can set configuration or point inside the protected tree"
-            k += 2 if texts[k] == "-C" else 1
-        sub = texts[k] if k < len(texts) else ""
-        if sub in ("config", "hook", "update-ref", "clean"):
-            return f"git {sub} can change configuration or hooks or delete ignored files"
-        if sub == "stash" and any(
-            t in ("--include-untracked", "--all")
-            or (t.startswith("-") and not t.startswith("--") and set(t) & set("ua"))
-            for t in texts[k + 1 :]
-        ):
-            return "git stash of untracked or ignored files can delete a protected file"
-    return None
+            if t.startswith("--"):
+                takes = "=" not in t and t[2:] in _WRAP_LONG
+            else:
+                hit = [k for k, c in enumerate(t[1:]) if c in vals]
+                takes = bool(hit) and hit[0] == len(t) - 2
+            if takes and i < n:
+                prefix.append(seg[i])
+                i += 1
+        if base == "timeout" and i < n:
+            prefix.append(seg[i])  # the duration
+            i += 1
+    if i >= n:
+        return prefix, "", [], chain
+    head = seg[i]
+    if not head.literal:
+        return prefix, "", list(seg[i:]), chain
+    return prefix, PurePosixPath(head.text).name, list(seg[i + 1 :]), chain
+
+
+def _bare(word: _Word) -> bool:
+    """A word that names a path relative to the (unknown) working directory."""
+    return not word.literal or not word.text.startswith(("/", "~", "-"))
 
 
 def _legacy_scan(command: str, protected: Sequence[str]) -> bool:
@@ -814,58 +1041,317 @@ def _legacy_scan(command: str, protected: Sequence[str]) -> bool:
     return trio and (">" in command or _WRITER_RE.search(command) is not None)
 
 
-def _shell_protected(command: str, protected: Sequence[str], root: Path) -> bool:
+@dataclass
+class _Run:
+    """One pass over a command: the tracked directory, the directory stack and the context."""
+
+    protected: Sequence[str]
+    root: Path
+    cwd: Cwd
+    depth: int
+    dirs: list[Cwd] = field(default_factory=list)
+
+    def hit(self, w: _Word, *, split: bool = True) -> bool:
+        return _word_hits(w, self.protected, self.root, self.cwd, split=split)
+
+    def cov(self, w: _Word, *, root_too: bool = True) -> bool:
+        return _word_covers(w, self.protected, self.root, self.cwd, root_too=root_too)
+
+    def reaches_root(self, w: _Word) -> bool:
+        return not w.literal or self.cov(w)
+
+    def hidden(self, w: _Word, interp: bool) -> bool:
+        """A protected name hidden inside one quoted argument of an interpreter or a flag."""
+        return (
+            w.literal
+            and (interp or w.text.startswith("-"))
+            and _substring_hit(w.text, self.protected)
+        )
+
+    def chdir(self, text: str) -> Cwd:
+        if self.cwd is None and not text.startswith(("/", "~")):
+            return None
+        joined = os.path.join(str(self.root), *(self.cwd or ()), os.path.expanduser(text))
+        rel = os.path.relpath(os.path.realpath(joined), os.path.realpath(self.root))
+        return tuple(p for p in PurePosixPath(rel).parts if p != ".")
+
+    def segment(self, seg: list[_Word], redirs: list[_Word]) -> str | None:
+        for w in redirs:
+            if len(w.pieces) > MAX_PIECES:
+                return COMPLEX_WHY
+            if self.hit(w, split=False):
+                return PROTECTED_WHY
+            if self.cwd is None and _bare(w):
+                return UNKNOWN_CWD_WHY
+        if not seg:
+            return None
+        if any(len(w.pieces) > MAX_PIECES for w in seg):
+            return COMPLEX_WHY
+        prefix, name, args, chain = _unwrap(seg)
+        if name in _UNKNOWN_WRAPPERS:
+            return f"'{name}' runs other commands and the guard cannot see through it"
+        interp = any(c in INTERPRETERS for c in (*chain, name))
+        for w in prefix:  # NAME=value assignments and wrapper options
+            if self.hit(w) or self.hidden(w, interp):
+                return PROTECTED_WHY
+        texts = [w.text for w in args]
+        if name in READERS and _segment_denial([name, *texts]) is None:
+            return None  # a plain read, may name a protected file
+        why = self.structural(name, args)
+        if why:
+            return why
+        cd = name in ("cd", "pushd", "popd")
+        if self.cwd is None and not cd and any(_bare(w) for w in args):
+            return UNKNOWN_CWD_WHY
+        split = not (name in FREE_OPTIONS or name == "printf")
+        for w in args:
+            if self.hit(w, split=split) or self.hidden(w, interp):
+                return PROTECTED_WHY
+        if name in _SHELLS or name == "eval":
+            bodies = [w.text for w in args if w.literal and not w.text.startswith("-")]
+            if name == "eval":
+                bodies = [" ".join(bodies)]
+            for body in bodies:
+                why = _shell_denial(body, self.protected, self.root, self.cwd, self.depth + 1)
+                if why:
+                    return why
+        if cd:
+            self.change_dir(name, args)
+        return None
+
+    def change_dir(self, name: str, args: list[_Word]) -> None:
+        if name == "popd":
+            self.cwd = self.dirs.pop() if self.dirs else None
+            return
+        ops = [w for w in args if not (w.literal and w.text.startswith("-") and w.text != "-")]
+        new: Cwd = None
+        if len(ops) == 1 and ops[0].literal and ops[0].text not in ("", "-"):
+            new = self.chdir(ops[0].text)
+        if name == "pushd":
+            self.dirs.append(self.cwd)
+        self.cwd = new
+
+    def structural(self, name: str, args: list[_Word]) -> str | None:
+        """Commands that reach or change protected files without naming them."""
+        texts = [w.text for w in args]
+        paths = [w for w in args if not w.text.startswith("-")]
+        if name in ("rm", "rmdir", "unlink", "shred"):
+            if name == "rm" and _is_recursive(texts) and any(self.reaches_root(w) for w in paths):
+                return (
+                    "a recursive delete of a glob, an expansion, the workspace root or a "
+                    "directory that holds a protected file"
+                )
+            if any(self.cov(w) for w in paths):
+                return "it deletes the workspace root or a directory that holds a protected file"
+        elif name == "mv":
+            with_t = any(t == "-t" or _long_prefix(t, "target-directory") for t in texts)
+            if any(self.cov(w) for w in (paths if with_t else paths[:-1])):
+                return "it moves the workspace root or a directory that holds a protected file"
+        elif name == "find" and any(t.startswith(FIND_WRITE) for t in texts):
+            starts: list[_Word] = []
+            for w in args:
+                if w.text.startswith("-"):
+                    break
+                starts.append(w)
+            if not starts or any(self.reaches_root(w) for w in starts):
+                return (
+                    "find with -delete, -exec or another write action must not start at the "
+                    "workspace root, a directory that holds protected files, a glob or an "
+                    "expansion; start from a subdirectory such as src"
+                )
+        elif name == "tar":
+            if any(t.startswith("--rem") for t in texts) or any(
+                self.cov(w, root_too=False) for w in paths
+            ):
+                return (
+                    "tar --remove-files, or extracting into a directory that holds a protected file"
+                )
+        elif name == "rsync":
+            gone = any(t.startswith(("--del", "--remove")) for t in texts)
+            if any(self.cov(w, root_too=gone) for w in paths):
+                return "rsync into a directory that holds a protected file, or with --delete"
+        elif name in ("cp", "install"):
+            merging = any(w.text == "." or w.text.endswith("/.") for w in paths[:-1])
+            if merging and any(self.cov(w) for w in paths[-1:]):
+                return "a merging copy over a directory that holds a protected file"
+        elif name == "unzip" and any(self.cov(w, root_too=False) for w in paths):
+            return "unzip into a directory that holds a protected file"
+        elif name in ("gzip", "zstd") and _is_recursive(texts) and any(self.cov(w) for w in paths):
+            return f"{name} -r over a directory that holds a protected file"
+        elif name == "git":
+            return self.git_denial(args)
+        return None
+
+    def git_denial(self, args: list[_Word]) -> str | None:
+        texts = [w.text for w in args]
+        k = 0
+        while k < len(texts) and texts[k].startswith("-"):
+            if texts[k] == "-c" or texts[k].startswith(
+                ("--config-env", "--exec-path", "--git-dir", "--work-tree")
+            ):
+                return "a git option can set configuration or point inside the protected tree"
+            k += 2 if texts[k] == "-C" else 1
+        sub = texts[k] if k < len(texts) else ""
+        rest = texts[k + 1 :]
+        short = _short_letters(rest)
+        if sub in GIT_REWRITE:
+            return f"git {sub} can change configuration, hooks or the contents of .git"
+        if sub == "stash" and (
+            short & set("ua")
+            or any(_long_prefix(t, "include-untracked") or _long_prefix(t, "all") for t in rest)
+        ):
+            return "git stash of untracked or ignored files can delete a protected file"
+        if sub == "remote" and GIT_REMOTE_WRITE & set(rest):
+            return "git remote add, set-url and similar rewrite .git/config"
+        if sub == "reflog" and {"expire", "delete"} & set(rest):
+            return "git reflog expire or delete rewrites .git"
+        if sub == "tag" and (
+            short & set("df")
+            or any(_long_prefix(t, "delete") or _long_prefix(t, "force") for t in rest)
+        ):
+            return "git tag -d or -f rewrites .git"
+        if sub == "branch" and (
+            short & set("mMdDuCcf")
+            or any(_long_prefix(t, long) for t in rest for long in GIT_BRANCH_LONG)
+        ):
+            return "git branch with an option that renames, deletes or edits rewrites .git"
+        if sub == "init" and any(t.startswith("--separate-git-dir") for t in rest):
+            return "git init --separate-git-dir moves .git"
+        if sub in ("rm", "mv") and any(
+            self.cov(w) for w in args[k + 1 :] if not w.text.startswith("-")
+        ):
+            return "it removes or moves a directory that holds a protected file"
+        return None
+
+
+def _shell_denial(
+    command: str,
+    protected: Sequence[str],
+    root: Path,
+    cwd: Cwd = (),
+    depth: int = 0,
+) -> str | None:
+    """Why a workspace-write shell command is refused, or None. Follows ``cd``, ``pushd``,
+    subshells and ``sh -c`` bodies, and looks through wrappers such as ``env`` and ``sudo``."""
+    if depth > MAX_DEPTH:
+        return "shell commands are nested too deep to check"
     items = _scan(command)
     if items is None or "`" in command or "$(" in command or "${" in command:
-        return _legacy_scan(command, protected)
-    segs: list[list[_Word]] = [[]]
+        return PROTECTED_WHY if _legacy_scan(command, protected) else None
+    run = _Run(protected, root, cwd, depth)
+    seg: list[_Word] = []
+    redirs: list[_Word] = []
     redirect = False
     for kind, val in items:
         if kind in ("op", "bad"):
-            segs.append([])
-            redirect = False
+            why = run.segment(seg, redirs)
+            if why:
+                return why
+            seg, redirs, redirect = [], [], False
+            if val == "(":
+                run.dirs.append(run.cwd)
+            elif val == ")" and run.dirs:
+                run.cwd = run.dirs.pop()
         elif kind == "redir":
             assert isinstance(val, str)
             redirect = ">" in val
         elif kind == "word":
             assert isinstance(val, _Word)
             if redirect:
-                if _word_hits(val, protected, root, split=False):
-                    return True
+                redirs.append(val)
                 redirect = False
             else:
-                segs[-1].append(val)
-    for seg in segs:
-        if not seg:
-            continue
-        head, args = seg[0], seg[1:]
-        name = head.text if head.literal else ""
-        # A reader is exempt only when the whole command is a plain read.
-        if name in READERS and _segment_denial([w.text for w in seg]) is None:
-            continue
-        if _structural_denial(name, args):
-            return True
-        split = not (name in FREE_OPTIONS or name == "printf")
-        for w in args if head.literal else [head, *args]:
-            if _word_hits(w, protected, root, split=split):
-                return True
-            hidden = w.literal and (name in INTERPRETERS or w.text.startswith("-"))
-            if hidden and _substring_hit(w.text, protected):
-                return True
-    return False
+                seg.append(val)
+    return run.segment(seg, redirs)
+
+
+PATH_KEYS: Final = frozenset(
+    [
+        "path", "file", "filename", "dest", "destination", "target", "src", "source", "cwd",
+        "dir", "directory", "output", "to", "from", "paths", "files", "dirs", "directories",
+        "sources", "targets", "outputs", "destinations",
+    ]
+)  # fmt: skip
+_FILENAME_KEY: Final = re.compile(r"[\w.~/@+-]+")
+
+
+def _is_path_key(key: str) -> bool:
+    k = key.casefold()
+    return k in PATH_KEYS or k.endswith(("_path", "_file", "_dir"))
+
+
+MAX_ARG_DEPTH: Final = 6  # deeper or larger write calls are refused, not half-checked
+MAX_ARG_STRINGS: Final = 256
 
 
 def _checked_strings(arguments: Mapping[str, object]) -> list[str]:
-    """Every string argument of a write tool that could name a place, content keys skipped."""
+    """Strings of a write tool call that could name a place: values under path-like keys and
+    values that start like a path (``/`` ``./`` ``../`` ``~``), at any depth, and dict keys that
+    look like file names. Content and prose arguments are skipped."""
     out: list[str] = []
-    for key, value in arguments.items():
+
+    def add(text: str) -> None:
+        if len(out) >= MAX_ARG_STRINGS:
+            raise ValueError(f"a write call holds more than {MAX_ARG_STRINGS} paths to check")
+        out.append(text)
+
+    def walk(key: str, value: object, depth: int) -> None:
         if key in CONTENT_ARGS and key not in PATH_ARGS:
-            continue
-        values = value if isinstance(value, (list, tuple)) else [value]
-        for v in values:
-            if isinstance(v, str) and (key in PATH_ARGS or ("\n" not in v and len(v) <= 4096)):
-                out.append(v)
+            return
+        if depth > MAX_ARG_DEPTH:
+            raise ValueError(f"a write call is nested deeper than {MAX_ARG_DEPTH} levels to check")
+        if isinstance(value, str):
+            plain = "\n" not in value and len(value) <= 4096
+            starts = value.startswith(("/", "./", "../", "~"))
+            if key in PATH_ARGS or (plain and (_is_path_key(key) or starts)):
+                add(value)
+        elif isinstance(value, Mapping):
+            for k, v in value.items():
+                if isinstance(k, str):
+                    if _FILENAME_KEY.fullmatch(k) and ("." in k or "/" in k):
+                        add(k)
+                    walk(k, v, depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for v in value:
+                walk(key, v, depth + 1)
+
+    for key, value in arguments.items():
+        walk(key, value, 0)
     return out
+
+
+def _protected_inodes(root: Path, protected: Sequence[str]) -> set[tuple[int, int]]:
+    """(device, inode) of the protected files under the root; a protected directory is walked
+    (at most 2000 entries)."""
+    out: set[tuple[int, int]] = set()
+    left = 2000
+    for entry in protected:
+        top = root / entry
+        walk = os.walk(top) if top.is_dir() else [(str(top.parent), [], [top.name])]
+        for base, dirs, files in walk:
+            for name in [*dirs, *files]:
+                left -= 1
+                try:
+                    st = os.lstat(os.path.join(base, name))
+                except OSError:
+                    continue
+                if stat.S_ISREG(st.st_mode):
+                    out.add((st.st_dev, st.st_ino))
+            if left <= 0:
+                return out
+    return out
+
+
+def _hard_link_to_protected(resolved: Path, root: Path, protected: Sequence[str]) -> bool:
+    try:
+        st = os.stat(resolved)
+    except OSError:
+        return False
+    return (
+        stat.S_ISREG(st.st_mode)
+        and st.st_nlink > 1
+        and (st.st_dev, st.st_ino) in _protected_inodes(root, protected)
+    )
 
 
 def make_mode_guard(
@@ -888,25 +1374,29 @@ def make_mode_guard(
         if kind == "shell":
             command = str(call.arguments.get("command") or "")
             if mode == "read-only":
-                why = _reader_denial(command)
-                return _refuse(call, mode, why) if why else None
-            if _shell_protected(command, protected, workspace.root):
-                return _refuse(call, mode, "it touches a protected file")
-            return None
+                why = _reader_denial(command, workspace.root)
+            else:
+                why = _shell_denial(command, protected, workspace.root)
+            return _refuse(call, mode, why) if why else None
         if mode == "read-only":
             return _refuse(call, mode, "writes are not allowed")
         if any(k in call.arguments and not isinstance(call.arguments[k], str) for k in PATH_ARGS):
             return _refuse(call, mode, "a write needs a path to check")
-        raws = _checked_strings(call.arguments)
+        try:
+            raws = _checked_strings(call.arguments)
+        except ValueError as exc:
+            return _refuse(call, mode, str(exc))
         if not raws:
             return _refuse(call, mode, "a write needs a path to check")
-        for raw in raws:  # every string argument is checked, whatever its key is called
+        for raw in raws:  # every path-like string is checked, nested ones included
             try:
                 resolved = workspace.check_write(raw)
             except (SandboxDenied, ValueError, OSError) as exc:
                 return _refuse(call, mode, str(exc))
             if _is_protected(resolved.relative_to(workspace.root).parts, protected):
                 return _refuse(call, mode, "the path is protected")
+            if _hard_link_to_protected(resolved, workspace.root, protected):
+                return _refuse(call, mode, "the path is a hard link to a protected file")
         return None
 
     return guard

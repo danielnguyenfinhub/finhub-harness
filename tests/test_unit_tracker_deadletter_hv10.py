@@ -81,7 +81,7 @@ def test_status_reports_failed_separately_from_done(job: str) -> None:
     assert (
         "DONE: 1" in out and "FAILED: 2" in out and "PENDING: 0" in out
     ), "C3: FAILED is counted on its own and not as done"
-    assert "STATE: converged" in out, "C5: nothing open means converged"
+    assert "STATE: stopped-with-failures" in out, "C5: nothing open but some given up on"
 
 
 def test_status_without_failures_has_no_failed_line(job: str) -> None:

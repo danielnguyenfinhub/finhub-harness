@@ -1,6 +1,6 @@
 ---
 name: finhub-harness-light
-description: "Low-token version of finhub-harness: builds a small agent team or a single skill in one pass, with at most two workers, cheap models, no judge or QA agents and a short orchestrator that can switch between light and full runs. Use when the user says 'light harness', 'quick harness', 'small harness', 'lean agent team', 'cheap harness', 'low-token harness' or 'light mode', when the job is one small task, and to switch a harness run to light ('run it light', 'switch to light'). Do NOT use for harnesses that decide money, eligibility, compliance or client-facing text, for software harnesses that need QA gates, or for borrowing patterns from reference repos: use finhub-harness for those."
+description: "Low-token finhub-harness: builds a small agent team or one skill in one pass, at most two workers, cheap models, no judge or QA agents, and a short orchestrator that switches between light and full runs. Use for 'light harness', 'quick harness', 'small harness', 'lean agent team', 'cheap harness', 'low-token harness', 'light mode', one small task, or to switch a run to light ('run it light'). Do NOT use for harnesses that decide money, eligibility, compliance or client-facing text, software harnesses needing QA gates, or borrowing patterns from reference repos: use finhub-harness."
 ---
 
 # FinHub Harness Light
@@ -23,7 +23,7 @@ For standard or full, say so and use the full skill `finhub-harness`.
 
 ## Outside effects
 
-If the job can send, write a record, publish, share or pay, ask the owner once: use the full skill `finhub-harness`, or build it here? If the owner says build here, write this rule into the skill under `## Ask before an outside effect`: show every call with its exact arguments first; make a call only after the owner's explicit yes to that list, each once; a no, no answer or a change sends nothing. Set `disable-model-invocation: true` in that skill's frontmatter. A worker that does not send gets a `tools:` allowlist with no `mcp__` tools (with no `tools:` line it inherits them); only the sender lists them, and its file says it works from the approved list.
+If the job can send, write a record, publish, share or pay, ask the owner once: use the full skill `finhub-harness`, or build it here? If the owner says build here, write this rule into the skill under `## Ask before an outside effect`: show every call with its exact arguments first; make a call only after the owner's explicit yes to that list, each once; a no, no answer or a change sends nothing. Set `disable-model-invocation: true` in that skill's frontmatter. A worker that does not send gets a `tools:` allowlist with no `mcp__` tools (with no `tools:` line it inherits them); only the sender lists them, and its file says it works from the approved list, on a line that starts `Sending worker:`.
 
 ## Procedure (one pass)
 
