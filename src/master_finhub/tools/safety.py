@@ -10,15 +10,24 @@ Design: deny before allow and match over the whole command line (pattern from au
 permissions.py, MIT; matcher is net-new). Every pass is linear in the command length, which is
 capped at MAX_COMMAND_CHARS and never truncated. Any internal error fails closed. Denial text
 never echoes the command.
+
+Not covered: a path the command text does not contain. Paths that arrive through a pipe, stdin,
+a file named by an option (`xargs -a`, `curl -d @file`), `git show :.env` or an interpreter's
+own code string are invisible here; xargs of a reader, `find -exec sh -c` and a reader fed by a
+substitution that names a credential are refused instead (rule unscannable-path), but a
+substitution that does not name one (`cat d/$(ls d)`) is only judged as the command it is.
+Wildcards are expanded against the real directory in part (4,096 entries per word, 65,536 per
+call), hard links by inode only for the credential files under the home directory.
 """
 
 from __future__ import annotations
 
+import itertools
 import os
 import posixpath
 import re
 import shlex
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
@@ -98,6 +107,48 @@ ASSIGN_RE: Final = re.compile(r"[A-Za-z_]\w{0,63}=.*", re.DOTALL)
 CONTROL_RE: Final = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")  # all but \t \n \r
 PY_RE: Final = re.compile(r"python[\d.]*")
 VAR_RE: Final = re.compile(r"\$(\w+)|\$\{(\w+)\}")
+REF_RE: Final = re.compile(r"\$(\w+)|\$\{(\w+)(?:(:?[-+=?])([^{}]*))?\}")  # plus ${X:-w} forms
+MAX_VAR_PRODUCT: Final = 64  # readings of one word; past it only the first and last readings
+MAX_SUBST_BODIES: Final = 16
+MAX_DYN_DIRS: Final = 64  # directories tried for a relative word after a non-literal `cd`
+DIR_CMDS: Final = frozenset({"env", "tar", "git", "make"})
+SUBST_READERS: Final = frozenset({"cat", "head", "tail", "less", "more", "cp", "mv", "tar"})
+CRED_WORDS: Final = (".ssh", ".aws", ".env", "gnupg", "kube", "docker", "npmrc", "netrc", "pypirc")
+CRED_WORDS_ANY: Final = (*CRED_WORDS, "id_", "rsa")
+XARGS_READERS: Final = SUBST_READERS | frozenset(
+    [
+        "grep",
+        "egrep",
+        "fgrep",
+        "rg",
+        "sed",
+        "awk",
+        "sort",
+        "uniq",
+        "wc",
+        "od",
+        "xxd",
+        "strings",
+        "base64",
+        "nl",
+        "tac",
+        "rev",
+        "bat",
+        "jq",
+        "diff",
+        "cmp",
+        "file",
+        "md5sum",
+        "sha1sum",
+        "sha256sum",
+        "shasum",
+        "scp",
+        "rsync",
+        "openssl",
+        "source",
+    ]
+)
+GLOB_CHARS_RE: Final = re.compile(r"[*?\[]")
 BRACE_RE: Final = re.compile(r"\{([^{}]*,[^{}]*)\}")
 ANSI_C_RE: Final = re.compile(r"\$'((?:[^'\\]|\\.)*)'", re.DOTALL)
 ANSI_ESC_RE: Final = re.compile(
@@ -129,7 +180,7 @@ WRAPPERS: Final = frozenset(
 WRAPPER_VALUE_FLAGS: Final[Mapping[str, frozenset[str]]] = {
     "sudo": frozenset({"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-T", "-U"}),
     "doas": frozenset({"-u", "-C"}),
-    "env": frozenset({"-u", "-C", "-S"}),
+    "env": frozenset({"-u", "-C", "-S", "--chdir"}),
     "nice": frozenset({"-n"}),
     "stdbuf": frozenset({"-i", "-o", "-e"}),
     "timeout": frozenset({"-s", "-k"}),
@@ -191,7 +242,11 @@ RULE_REASONS: Final[Mapping[str, str]] = {
     "path-too-long": "a path or command word is longer than its limit after expanding ~ and "
     "$VARS (4,096 for path arguments, 10,000 in commands) and was not inspected",
     "path-budget": "the call names more path components than can be inspected at once "
-    "(16,384); split it into smaller calls",
+    "(16,384) or expands more wildcard entries than can be listed (65,536); split it into "
+    "smaller calls",
+    "unscannable-path": "the files it reads come from xargs, a find -exec shell or a command "
+    "substitution that names a credential location, so they cannot be checked; write the path "
+    "out literally",
 }
 
 
@@ -212,6 +267,12 @@ class _State:
     cwd: str | None = None  # literal directory after `cd`; None until a literal `cd`
     vars: dict[str, str] = field(default_factory=dict)  # NAME=literal set earlier in the command
     downloaded: set[str] = field(default_factory=set)
+    stack: list[tuple[str | None, str | None]] = field(default_factory=list)  # pushd/popd
+    dyn_base: str | None = None  # last known directory before a non-literal `cd`
+    extra: list[str] = field(default_factory=list)  # `env -C`, `tar -C`, `git -C`: this segment
+    extra_dyn: str | None = None  # a non-literal such target (this segment)
+    dyn_cache: dict[str, list[str]] = field(default_factory=dict)
+    var_overflow: bool = False  # more than MAX_TRACKED_VARS names: later `$` words are refused
 
 
 def cmd_name(tok: str) -> str:
@@ -369,6 +430,112 @@ class _TooManyForms(Exception):
     pass
 
 
+def _var_forms(word: str, names: Mapping[str, str]) -> list[str]:
+    """Every reading of one word's variables. The first is `_subst`'s. A name the guard cannot
+    resolve reads as itself and as empty; `${X:-w}`, `${X-w}` and `${X:=w}` also as `w`, and
+    `${X:+w}` and `${X+w}` also as `w` or empty (a set variable). With more than
+    MAX_VAR_PRODUCT combinations only the first and last reading of every reference are kept."""
+    if "$" not in word:
+        return [word]
+    refs = list(REF_RE.finditer(word))
+    if not refs:
+        return [word]
+    alts: list[list[str]] = []
+    for m in refs:
+        name, op, w = m.group(1) or m.group(2), m.group(3), _subst(m.group(4) or "", names)
+        known = names.get(name)
+        if op is None:
+            a = [known] if known is not None else [m.group(0), ""]
+        else:
+            a = [m.group(0), *([known] if known is not None else []), w, ""]
+        alts.append(list(dict.fromkeys(a)))
+    size = 1
+    for a in alts:
+        size *= len(a)
+        if size > MAX_VAR_PRODUCT:
+            break
+    combos: Iterable[tuple[str, ...]]
+    if size <= MAX_VAR_PRODUCT:
+        combos = itertools.product(*alts)
+    else:
+        combos = [tuple(a[0] for a in alts), tuple(a[-1] for a in alts)]
+    out: list[str] = []
+    for combo in combos:
+        pieces: list[str] = []
+        last = 0
+        for m, rep in zip(refs, combo, strict=True):
+            pieces += [word[last : m.start()], rep]
+            last = m.end()
+        out.append("".join(pieces) + word[last:])
+    return list(dict.fromkeys(out))
+
+
+def _literal_dir(arg: str, names: Mapping[str, str], cwd: str | None) -> str | None:
+    """The directory a literal `cd`-like target names, or None if it is not literal."""
+    t = os.path.expanduser(_subst(arg, names)) if arg else _home()
+    if any(c in t for c in "$`*?[{") or not t:
+        return None
+    new = posixpath.normpath(t if t.startswith("/") or cwd is None else posixpath.join(cwd, t))
+    return new if len(new) <= _sp.PATH_MAX_CHARS else None
+
+
+def _dyn_dirs(base: str, state: _State) -> list[str]:
+    """`base` and the directories under it down to two levels (MAX_DYN_DIRS, and the entries
+    read count against the call's glob-entry budget): where a non-literal `cd` may have gone."""
+    if base in state.dyn_cache:
+        return state.dyn_cache[base]
+    scan = _sp.current_scan() or _sp.Scan()
+    out, todo = [base], [(base, 0)]
+    while todo and len(out) < MAX_DYN_DIRS:
+        d, depth = todo.pop(0)
+        try:
+            it = os.scandir(d)
+        except OSError:
+            continue
+        with it:
+            for e in it:
+                scan.entries_left -= 1
+                if scan.entries_left < 0 or len(out) >= MAX_DYN_DIRS:
+                    break
+                try:
+                    if e.is_dir():
+                        out.append(e.path)
+                        if depth < 1:
+                            todo.append((e.path, depth + 1))
+                except OSError:
+                    continue
+    state.dyn_cache[base] = out
+    return out
+
+
+def _seg_dirs(words: list[str], joined: str, state: _State) -> tuple[list[str], str | None]:
+    """Directories this one command runs in or reads relative to: `env -C D`, `env --chdir D`,
+    `--chdir=D`, `tar -C D`, `--directory=D`, `git -C D`, `make -C D`. The second value is the
+    last known directory when a target is not literal."""
+    if "-C" not in joined and "--chdir" not in joined and "--directory" not in joined:
+        return [], None
+    if not DIR_CMDS & {cmd_name(w) for w in words}:
+        return [], None
+    base = state.cwd if state.cwd is not None else os.getcwd()
+    dirs: list[str] = []
+    dyn: str | None = None
+    for i, w in enumerate(words):
+        if w in ("-C", "--chdir", "--directory"):
+            target = words[i + 1] if i + 1 < len(words) else ""
+        elif w.startswith(("--chdir=", "--directory=")):
+            target = w.partition("=")[2]
+        elif w.startswith("-C") and not w.startswith("-C=") and len(w) > 2:
+            target = w[2:]
+        else:
+            continue
+        lit = _literal_dir(target, state.vars, base) if target else None
+        if lit is None:
+            dyn = base
+        else:
+            dirs.append(lit)
+    return dirs[:MAX_DYN_DIRS], dyn
+
+
 def _braces(word: str) -> list[str]:
     """Comma brace expansion of one word, innermost first, at most MAX_BRACE_FORMS results."""
     forms = [word]
@@ -401,16 +568,42 @@ def _exists(path: str) -> bool:
 def _word_forms(word: str, state: _State) -> list[str]:
     """What the shell may turn one raw word into: known variables replaced, braces expanded, and
     (after a literal `cd`) the same relative word under the new directory."""
-    w = _subst(word, state.vars)
-    forms = _braces(w) if "{" in w and "," in w else [w]
-    if state.cwd is not None:
-        forms += [posixpath.join(state.cwd, f) for f in forms if not f.startswith(("/", "~", "$"))]
+    if state.var_overflow and "$" in word:
+        raise _TooManyForms
+    if (
+        "$" not in word
+        and "{" not in word
+        and state.cwd is None
+        and not state.extra
+        and state.dyn_base is None
+        and state.extra_dyn is None
+    ):
+        return [word]  # the common word: nothing to read two ways
+    forms: list[str] = []
+    for w in _var_forms(word, state.vars):
+        forms += _braces(w) if "{" in w and "," in w else [w]
+    forms = list(dict.fromkeys(forms))
+    rel = [f for f in forms if not f.startswith(("/", "~", "$"))]
+    bases = ([state.cwd] if state.cwd is not None else []) + state.extra
+    for b in (state.dyn_base, state.extra_dyn):
+        if b is not None:  # a non-literal `cd`: the word may be relative to any directory below
+            bases += _dyn_dirs(b, state)
+            rel = [f for f in rel if not f.startswith("-")]
+    forms += [posixpath.join(b, f) for b in dict.fromkeys(bases) for f in rel]
     return forms
+
+
+def _form_rule(f: str) -> str | None:
+    rule = _sp.sensitive_rule(f, resolve=_pathish(f) or _exists(f), max_chars=MAX_COMMAND_CHARS)
+    if rule is None and GLOB_CHARS_RE.search(f):
+        rule = _sp.glob_rule(f, _sp.current_scan() or _sp.Scan())
+    return rule
 
 
 def _sensitive_word_rule(words: list[str], state: _State) -> str | None:
     """OH31: every raw word, before strip_wrappers, so VAR=~/.x and wrapper flag values count.
-    A bare word is walked too when a file of that name exists (a symlink alias)."""
+    A bare word is walked too when a file of that name exists (a symlink alias), and a word with
+    wildcards is expanded against the real directory and each match that needs it is walked."""
     scan = _sp.current_scan() or _sp.Scan()
     for w in words:
         try:
@@ -419,9 +612,7 @@ def _sensitive_word_rule(words: list[str], state: _State) -> str | None:
             return "check-failed"
         for f in forms:
             if f not in scan.cmd:
-                scan.cmd[f] = _sp.sensitive_rule(
-                    f, resolve=_pathish(f) or _exists(f), max_chars=MAX_COMMAND_CHARS
-                )
+                scan.cmd[f] = _form_rule(f)
             if scan.cmd[f] is not None:
                 return scan.cmd[f]
     return None
@@ -433,6 +624,8 @@ def _track(words: list[str], core: list[str], state: _State) -> None:
         if ASSIGN_RE.fullmatch(w):
             key, _, val = w.partition("=")
             val = _subst(val, state.vars)
+            if key not in state.vars and len(state.vars) >= MAX_TRACKED_VARS:
+                state.var_overflow = True  # a name the guard stopped tracking could hide a path
             if (
                 "$" in val
                 or "`" in val
@@ -443,24 +636,104 @@ def _track(words: list[str], core: list[str], state: _State) -> None:
                 state.vars[key] = val
         elif w not in ASSIGN_PREFIXES and not w.startswith("-"):
             break
-    if core and cmd_name(core[0]) == "cd":
+    name = cmd_name(core[0]) if core else ""
+    if name == "popd":
+        if state.stack:
+            state.cwd, state.dyn_base = state.stack.pop()
+        return
+    if name in ("cd", "pushd"):
         args = [_subst(a, state.vars) for a in core[1:]]
         target = [a for a in args if not a.startswith("-")]
         if args and not target:
             return  # `cd -` and the like: keep the last known directory
-        t = os.path.expanduser(target[0]) if target else _home()
-        if any(c in t for c in "$`*?[{") or not t:
-            return  # not literal: later words are still checked as written
-        new = posixpath.normpath(
-            t if t.startswith("/") or state.cwd is None else posixpath.join(state.cwd, t)
-        )
-        if len(new) <= _sp.PATH_MAX_CHARS:
-            state.cwd = new
+        if name == "pushd" and any(a.startswith("+") for a in args):
+            return  # a rotation of the stack: not followed
+        if name == "pushd" and len(state.stack) < MAX_TRACKED_VARS:
+            state.stack.append((state.cwd, state.dyn_base))
+        new = _literal_dir(target[0] if target else "", state.vars, state.cwd)
+        if new is None:
+            # not literal: words are checked as written, under the last known directory and
+            # under the directories below it that the guard can list
+            if state.dyn_base is None:
+                state.dyn_base = state.cwd if state.cwd is not None else os.getcwd()
+            return
+        state.cwd = new
+        if new.startswith("/"):
+            state.dyn_base = None
+
+
+def _bodies(word: str) -> list[str]:
+    """Texts of the `$(...)` and backtick substitutions inside one lexed word (quotes already
+    removed, so these are substitutions bash runs inside double quotes). At most MAX_SUBST_BODIES
+    are read; one more makes the caller refuse."""
+    out: list[str] = []
+    i, n = 0, len(word)
+    while i < n and len(out) <= MAX_SUBST_BODIES:
+        if word.startswith("$(", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                depth += (word[j] == "(") - (word[j] == ")")
+                j += 1
+            out.append(word[i + 2 : j - 1 if depth == 0 else j])
+            i = j
+        elif word[i] == "`":
+            j = word.find("`", i + 1)
+            j = n if j < 0 else j
+            out.append(word[i + 1 : j])
+            i = j + 1
+        else:
+            i += 1
+    return out
+
+
+def _quoted_subst_rule(words: list[str], joined: str, state: _State) -> str | None:
+    """A substitution inside double quotes is one lexed word; judge its text as a command (the
+    old R5 gap), under the variables and directory known so far."""
+    if "$(" not in joined and "`" not in joined:
+        return None
+    for w in words:
+        if "$(" not in w and "`" not in w:
+            continue
+        bodies = _bodies(w)
+        if len(bodies) > MAX_SUBST_BODIES:
+            return "check-failed"
+        for body in bodies:
+            text = _subst(body, state.vars)
+            if state.cwd is not None:
+                text = f"cd {shlex.quote(state.cwd)}; {text}"
+            rule = _check(text, state.depth + 1, state.sensitive)
+            if rule:
+                return rule
+    return None
+
+
+def _unscannable(words: list[str], core: list[str], name: str, args: list[str]) -> bool:
+    """xargs, find -exec of a shell: the paths are not in the text. (A substitution naming a
+    credential location is judged in _check_tokens.)"""
+    if (name in XARGS_READERS or is_interpreter(name) or name in DOWNLOADERS) and any(
+        cmd_name(w) == "xargs" for w in words[: len(words) - len(core)]
+    ):
+        return True  # a program that reads or runs the files xargs hands it
+    if name == "find":
+        for i, a in enumerate(args):
+            if a in ("-exec", "-execdir", "-ok", "-okdir") and any(
+                cmd_name(b) in SHELL_HOSTS for b in args[i + 1 :]
+            ):
+                return True
+    return False
 
 
 def segment_rule(words: list[str], state: _State) -> str | None:
     if state.sensitive:
-        hit = _sensitive_word_rule(words, state)
+        joined = " ".join(words)
+        state.extra, state.extra_dyn = _seg_dirs(words, joined, state)
+        try:
+            hit = _sensitive_word_rule(words, state)
+        finally:
+            state.extra, state.extra_dyn = [], None
+        if hit:
+            return hit
+        hit = _quoted_subst_rule(words, joined, state)
         if hit:
             return hit
     core = strip_wrappers(words)
@@ -530,7 +803,10 @@ def segment_rule(words: list[str], state: _State) -> str | None:
                 state.downloaded.add(args[i + 1].removeprefix("./"))
     if is_interpreter(name) and any(a.removeprefix("./") in state.downloaded for a in args):
         return "run-downloaded-script"
-    return _inline_rule(name, args, state.depth, state.sensitive)
+    rule = _inline_rule(name, args, state.depth, state.sensitive)
+    if rule is None and state.sensitive and _unscannable(words, core, name, args):
+        return "unscannable-path"
+    return rule
 
 
 def split_ops(tok: str) -> list[str]:
@@ -667,6 +943,35 @@ def fork_bomb(command: str) -> bool:
     return any(f"{n}|{n}&" in flat for n in names)
 
 
+def _opens_subst(segs: list[tuple[str, list[str]]], idx: int) -> bool:
+    """Segment idx is the body of a command substitution (`$(`, a backtick, or `X$` then `(`)."""
+    sep = segs[idx][0]
+    prev = segs[idx - 1][1] if idx > 0 else []
+    return sep in ("$(", "`") or (sep == "(" and bool(prev) and prev[-1].endswith("$"))
+
+
+def _subst_credential(segs: list[tuple[str, list[str]]], idx: int) -> bool:
+    """Segment idx opens a command substitution whose outer command is a reader (cat, cp, tar,
+    ...) and whose words contain a credential-adjacent token: the file it names is not in the
+    text, so refuse rather than guess."""
+    sep, prev = segs[idx][0], (segs[idx - 1][1] if idx > 0 else [])
+    if not _opens_subst(segs, idx):
+        return False
+    outer = strip_wrappers(prev)
+    if not outer or cmd_name(outer[0]) not in SUBST_READERS:
+        return False
+    depth = 0
+    for j in range(idx, len(segs)):
+        s, words = segs[j]
+        if j > idx:
+            if s == ")" and depth == 0 or (s == "`" and sep == "`"):
+                break
+            depth += (s in ("$(", "(", "<(")) - (s == ")")
+        if any(c in w.casefold() for w in words for c in CRED_WORDS_ANY):
+            return True
+    return False
+
+
 def _check_tokens(tokens: list[str], depth: int, sensitive: bool) -> str | None:
     state = _State(depth=depth, sensitive=sensitive)
     segs = segments(tokens)
@@ -690,9 +995,18 @@ def _check_tokens(tokens: list[str], depth: int, sensitive: bool) -> str | None:
             pipe_source = False
         if name in DOWNLOADERS or name in DECODERS:
             pipe_source = True
+        if (
+            sensitive
+            and name in ("cd", "pushd")
+            and idx + 1 < len(segs)
+            and _opens_subst(segs, idx + 1)
+        ):
+            words = [*words, "$("]  # `cd $(...)`: the target is not literal
         rule = segment_rule(words, state)
         if rule:
             return rule
+        if sensitive and _subst_credential(segs, idx):
+            return "unscannable-path"
         if core:
             prev_name = name
     return None
