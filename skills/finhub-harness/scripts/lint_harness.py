@@ -340,8 +340,12 @@ def check_connector_scope(path: Path, data: dict[str, str], text: str) -> None:
         if not mcp or (read_only and all(is_read_tool(t) for t in mcp)):
             return
         why = "lists mcp__ tools"
-    msg = f"worker {why} but is not the sending worker"
-    msg += "; fix: give it a tools: allowlist without mcp__<server>__* tools; only the sender lists them"
+    name = data.get("name") or path.stem
+    msg = f"worker {name} {why} but is not marked as the sending worker"
+    msg += "; fix: if it must not send, add a tools: allowlist without mcp__<server>__* tools"
+    msg += ' (no tools: "*"); if it IS the sending worker, add one body line that starts "Sending'
+    msg += ' worker" and says "approved list" (no negation, outside code fences), for example:'
+    msg += " Sending worker: sends only the calls on the approved list."
     report("WARN", path, "connector-tools-unscoped", msg)
 
 
