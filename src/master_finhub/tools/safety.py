@@ -184,7 +184,7 @@ ANSI_SIMPLE: Final[Mapping[str, str]] = {
 }  # fmt: skip
 ASSIGN_PREFIXES: Final = frozenset({"export", "declare", "local", "readonly", "typeset"})
 FUNC_RE: Final = re.compile(r"([A-Za-z_:][\w:-]{0,63})\(\)\{|function([A-Za-z_][\w-]{0,63})\{")
-WRAPPERS: Final = frozenset(
+LEGACY_WRAPPERS: Final = frozenset(
     [
         "sudo",
         "doas",
@@ -204,6 +204,22 @@ WRAPPERS: Final = frozenset(
         "ltrace",
     ]
 )
+# round 4: more programs that run the rest of their words as a command
+WRAPPERS: Final = LEGACY_WRAPPERS | frozenset(
+    [
+        "chroot",
+        "taskset",
+        "unshare",
+        "nsenter",
+        "dbus-launch",
+        "builtin",
+        "flock",
+        "script",
+        "watch",
+        "ssh",
+        "parallel",
+    ]
+)
 # RA2-04: words that open a command in the shell grammar; the command follows them
 CONTROL_WORDS: Final = frozenset(["then", "do", "else", "elif", "if", "while", "until", "{", "!"])
 # NF3: wrapper flags that consume the next word (so it is not mistaken for the command).
@@ -220,6 +236,37 @@ WRAPPER_VALUE_FLAGS: Final[Mapping[str, frozenset[str]]] = {
     "ionice": frozenset({"-c", "-n", "-p", "-P", "-u"}),
     "strace": frozenset({"-e", "-o", "-p", "-s", "-u", "-E"}),
     "ltrace": frozenset({"-e", "-o", "-p", "-s", "-u"}),
+    "taskset": frozenset({"-c"}),
+    "unshare": frozenset({"-S", "-G", "-R", "-w"}),
+    "nsenter": frozenset({"-t", "-S", "-G"}),
+    "flock": frozenset({"-w", "-E", "-c"}),
+    "script": frozenset({"-c", "-E", "-I", "-O", "-B", "-T", "-m", "-o"}),
+    "watch": frozenset({"-n"}),
+    "parallel": frozenset({"-j", "-n", "-N", "-a", "-S", "-L", "-P", "-I", "-d", "-E", "-s", "-l"}),
+    "ssh": frozenset(
+        {
+            "-b",
+            "-c",
+            "-D",
+            "-E",
+            "-e",
+            "-F",
+            "-I",
+            "-i",
+            "-J",
+            "-L",
+            "-l",
+            "-m",
+            "-O",
+            "-o",
+            "-p",
+            "-Q",
+            "-R",
+            "-S",
+            "-W",
+            "-w",
+        }
+    ),
 }
 # RA2-05: long options that take a value in the next word (`--opt=value` is one word already)
 WRAPPER_VALUE_LONG: Final[Mapping[str, frozenset[str]]] = {
@@ -238,7 +285,24 @@ WRAPPER_VALUE_LONG: Final[Mapping[str, frozenset[str]]] = {
     ),
     "exec": frozenset(),
     "time": frozenset({"--format", "--output"}),
+    "chroot": frozenset({"--userspec", "--groups"}),
+    "taskset": frozenset({"--cpu-list"}),
+    "unshare": frozenset({"--root", "--wd", "--setuid", "--setgid", "--propagation"}),
+    "nsenter": frozenset({"--target", "--setuid", "--setgid"}),
+    "flock": frozenset({"--timeout", "--wait", "--conflict-exit-code", "--command"}),
+    "script": frozenset({"--command", "--log-in", "--log-out", "--log-io", "--timing"}),
+    "watch": frozenset({"--interval"}),
+    "parallel": frozenset({"--jobs", "--max-args", "--arg-file", "--delimiter", "--replace"}),
+    "ssh": frozenset(),
 }
+# round 4: words a wrapper takes before the command (the lock file, the new root, the CPU mask,
+# the host); `taskset -c LIST` has none because the list was the option's value
+POSITIONAL: Final[Mapping[str, int]] = {
+    "timeout": 1, "flock": 1, "chroot": 1, "taskset": 1, "ssh": 1,
+}  # fmt: skip
+# a wrapper flag whose value is a shell command string (`flock F -c STR`, `script -c STR`)
+CMD_STRING_FLAGS: Final[Mapping[str, str]] = {"flock": "c", "script": "c"}
+PARALLEL_SEPS: Final = frozenset({":::", "::::", ":::+", "::::+"})
 SHELLS: Final = frozenset(
     [
         "sh",
@@ -411,7 +475,7 @@ def strip_wrappers_legacy(words: list[str]) -> list[str]:
             i += 1
             continue
         wrapper = cmd_name(words[i])
-        if wrapper not in WRAPPERS:
+        if wrapper not in LEGACY_WRAPPERS:
             break
         i += 1
         valued = WRAPPER_VALUE_FLAGS.get(wrapper, frozenset())
@@ -432,35 +496,86 @@ def _split_string(value: str) -> list[str]:
     return shlex.split(value)  # ValueError on bad quoting: the caller fails closed
 
 
-def _peel(ws: list[str], i: int, out: list[list[str]], left: list[int]) -> None:
+REDIRECT_WORDS: Final = frozenset({">", ">>", "&>", ">&", "<", ">|"})
+MAX_PARALLEL_INPUTS: Final = 16  # inputs of `parallel ... :::` read one by one
+PLACEHOLDER_RE: Final = re.compile(r"\{[^{}\s]*\}")
+
+
+def _redirect_end(ws: list[str], i: int) -> int | None:
+    """Round 4 (R4): index after a redirection that stands in front of the command: `>f`,
+    `2>/dev/null`, `2>&1`, `<f`, `<<<x`. The command is the word after it, as in the shell."""
+    j = i
+    if ws[j].isdigit() and j + 1 < len(ws) and ws[j + 1] in REDIRECT_WORDS:
+        j += 1
+    if ws[j] not in REDIRECT_WORDS:
+        return None
+    j += 1
+    while j < len(ws) and ws[j] == "<":  # `<<EOF`, `<<<word`: the lexer splits the operator
+        j += 1
+    return min(j + 1, len(ws))
+
+
+def _parallel_texts(rest: list[str]) -> tuple[list[str], list[str]]:
+    """`parallel CMD ARGS ::: INPUTS`: the command words and the shell texts it will run."""
+    k = next((n for n, w in enumerate(rest) if w in PARALLEL_SEPS), len(rest))
+    cmd, inputs = rest[:k], [w for w in rest[k + 1 :] if w not in PARALLEL_SEPS]
+    base = " ".join(cmd)
+    texts = [base] if base else []
+    for inp in [*inputs[:MAX_PARALLEL_INPUTS], " ".join(inputs[MAX_PARALLEL_INPUTS:])]:
+        if not inp:
+            continue
+        if PLACEHOLDER_RE.search(base):
+            texts.append(PLACEHOLDER_RE.sub(inp.replace("\\", "\\\\"), base))
+        else:
+            texts.append(f"{base} {inp}".strip())
+    return cmd, texts
+
+
+def _peel(
+    ws: list[str], i: int, out: list[list[str]], left: list[int], modern: bool = True
+) -> None:
     """Append every reading of the command in ws[i:] to `out`, the main one last. Peels VAR=x,
-    control words (`then`, `do`, `{`, `!` ...), `function NAME`, and wrappers with their option
-    values: single flags, clustered flags (`-Eu root`), long options, `--`, and `env -S 'cmd'`.
-    An unknown long option may or may not take a value, so both readings are kept."""
+    redirections in front of the command, control words (`then`, `do`, `{`, `!` ...),
+    `function NAME`, and wrappers with their option values: single flags, clustered flags
+    (`-Eu root`), long options, `--`, and `env -S 'cmd'`. An unknown long option may or may not
+    take a value, so both readings are kept. Wrappers that hand a string to a shell (`flock -c`,
+    `script -c`, `watch`, `ssh HOST CMD`, `parallel`) add a `sh -c STRING` reading."""
     while i < len(ws):
         w = ws[i]
         if ASSIGN_RE.fullmatch(w) or w in CONTROL_WORDS:
             i += 1
             continue
+        redirect_end = _redirect_end(ws, i) if modern else None
+        if redirect_end is not None:
+            i = redirect_end
+            continue
         if w == "function":
             i += 2  # the function name
             continue
         wrapper = cmd_name(w)
-        if wrapper not in WRAPPERS:
+        if wrapper not in (WRAPPERS if modern else LEGACY_WRAPPERS):
             break
+        start = i
         i += 1
         valued = WRAPPER_VALUE_FLAGS.get(wrapper, frozenset())
         long_valued = WRAPPER_VALUE_LONG.get(wrapper, frozenset())
+        cmd_flag = CMD_STRING_FLAGS.get(wrapper, "")
+        seen: set[str] = set()
+        cmdstr: str | None = None
+        ssh_o: list[str] = []
         while i < len(ws) and ws[i].startswith("-"):
             flag = ws[i]
             i += 1
             if flag == "--":
                 break
             if flag.startswith("--"):
+                seen.add(flag.partition("=")[0])
                 if "=" in flag:
                     if wrapper == "env" and flag.startswith("--split-string="):
                         ws = [*ws[: i - 1], *_split_string(flag.partition("=")[2]), *ws[i:]]
                         i -= 1
+                    elif cmd_flag and flag.startswith("--command="):
+                        cmdstr = flag.partition("=")[2]
                     continue
                 if flag in long_valued:
                     if i < len(ws):
@@ -468,12 +583,15 @@ def _peel(ws: list[str], i: int, out: list[list[str]], left: list[int]) -> None:
                             ws = [*ws[: i - 1], *_split_string(ws[i]), *ws[i + 1 :]]
                             i -= 1
                         else:
+                            if cmd_flag and flag == "--command":
+                                cmdstr = ws[i]
                             i += 1
                 elif i < len(ws) and left[0] > 0:
                     left[0] -= 1
-                    _peel(ws, i + 1, out, left)  # reading B: the next word was its value
+                    _peel(ws, i + 1, out, left, modern)  # reading B: the next word was its value
                 continue
             for j in range(1, len(flag)):
+                seen.add("-" + flag[j])
                 if "-" + flag[j] not in valued:
                     continue
                 if j + 1 < len(flag):  # `-uroot`, `-Sstring`: the value is attached
@@ -487,9 +605,45 @@ def _peel(ws: list[str], i: int, out: list[list[str]], left: list[int]) -> None:
                     i -= 1
                 else:
                     i += step
+                if cmd_flag and flag[j] == cmd_flag:
+                    cmdstr = value
+                if wrapper == "ssh" and flag[j] == "o":
+                    ssh_o.append(value)
                 break
-        if wrapper == "timeout" and i < len(ws):
-            i += 1  # the duration
+        n = POSITIONAL.get(wrapper, 0)
+        if wrapper == "taskset" and seen & {"-c", "--cpu-list"}:
+            n = 0  # the CPU list was the option's value; no mask word follows
+        i += min(n, len(ws) - i)
+        if (
+            wrapper == "flock"
+            and cmdstr is None
+            and i + 1 < len(ws)
+            and re.fullmatch(r"-[A-Za-z]*c|--command", ws[i])
+        ):
+            cmdstr, i = ws[i + 1], len(ws)
+        if cmdstr is not None:
+            out.append(["sh", "-c", cmdstr])
+            out.append(ws[start:])  # the wrapper itself is the command of this reading
+            return
+        if wrapper == "script":
+            out.append(ws[start:])
+            return
+        if wrapper == "ssh":
+            for o in ssh_o:  # `-o ProxyCommand=CMD` runs CMD on this machine
+                m = re.match(r"(?i)(?:proxy|local)command\s*=?\s*(.+)", o)
+                if m:
+                    out.append(["sh", "-c", m.group(1)])
+            if i < len(ws):
+                out.append(["sh", "-c", " ".join(ws[i:])])  # the remote shell reads the text
+            out.append(ws[start:])
+            return
+        if wrapper == "watch" and not seen & {"-x", "--exec"} and i < len(ws):
+            out.append(["sh", "-c", " ".join(ws[i:])])  # without -x, watch hands it to sh -c
+        if wrapper == "parallel":
+            cmd, texts = _parallel_texts(ws[i:])
+            out.extend(["sh", "-c", t] for t in texts)
+            out.append(cmd)
+            return
     out.append(ws[i:])
 
 
@@ -504,7 +658,9 @@ def _cores_cached(words_t: tuple[str, ...]) -> tuple[tuple[str, ...], ...]:
     words = list(words_t)
     out: list[list[str]] = []
     _peel(words, 0, out, [MAX_BRANCHES])
-    found = [out[-1], *out[:-1], strip_wrappers_legacy(words)]
+    older: list[list[str]] = []  # the previous round's peel too, so no name or rule it saw is lost
+    _peel(words, 0, older, [MAX_BRANCHES], False)
+    found = [out[-1], *out[:-1], *older, strip_wrappers_legacy(words)]
     return tuple(tuple(c) for c in {tuple(c): c for c in found})
 
 
@@ -1419,6 +1575,8 @@ def _check_tokens(tokens: list[str], depth: int, sensitive: bool) -> str | None:
         ):
             words = [*words, "$("]  # `cd $(...)`: the target is not literal
         rule = segment_rule(words, state)
+        if rule is None and clobber and len(words) > 1:
+            rule = segment_rule(words[1:], state)  # `>|f CMD`: the lexer split off the file name
         if rule:
             return rule
         if sensitive and _subst_credential(segs, idx):
