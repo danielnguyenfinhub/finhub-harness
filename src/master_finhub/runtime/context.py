@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -119,6 +120,11 @@ def _excerpt(text: str) -> str:
     return " ".join(text.split())[:SUMMARY_LINE_CHARS]
 
 
+def _escape_tags(text: str) -> str:
+    """Neutralise the summary tags so message text cannot close or fake the summary block."""
+    return re.sub(r"<(/?)(compacted-summary)", r"&lt;\1\2", text, flags=re.IGNORECASE)
+
+
 def summarise(messages: Sequence[Message]) -> Message:
     """Deterministic, model-free checkpoint of ``messages`` (output depends only on input)."""
     lines: list[str] = []
@@ -127,7 +133,7 @@ def summarise(messages: Sequence[Message]) -> Message:
         line = f"{n}. {label}: {_excerpt(m.content)}"
         if m.tool_calls:
             line += f" [called: {', '.join(c.name for c in m.tool_calls)}]"
-        lines.append(line)
+        lines.append(_escape_tags(line))
     body = clip_text("\n".join(lines), SUMMARY_BUDGET_TOKENS)
     content = f"{CHECKPOINT_PREAMBLE}\n\n{SUMMARY_OPEN_TAG}\n{body}\n{SUMMARY_CLOSE_TAG}"
     return Message(role="user", content=content)
@@ -188,12 +194,14 @@ class ContextManager:
             for m in messages
         ]
 
-    def fit(self, messages: list[Message]) -> list[Message]:
+    def fit(self, messages: list[Message], tools_tokens: int = 0) -> list[Message]:
+        """``tools_tokens`` is the size of the tool catalogue sent with every request; it counts
+        against the threshold like a message that can never be compacted."""
         clipped = self._clipped(messages)
-        total = sum(estimate_message(m) for m in clipped)
+        total = sum(estimate_message(m) for m in clipped) + tools_tokens
         if total < self.threshold_tokens:
             return clipped
-        return self._compacted(clipped, total, self.retain_tokens)
+        return self._compacted(clipped, total, self.retain_tokens, tools_tokens)
 
     def compact(self, messages: list[Message]) -> list[Message]:
         """Compact now, even below the threshold: the provider said the window is full.
@@ -206,13 +214,15 @@ class ContextManager:
         total = sum(estimate_message(m) for m in clipped)
         return self._compacted(clipped, total, min(self.retain_tokens, total // 2))
 
-    def _compacted(self, clipped: list[Message], total: int, retain: int) -> list[Message]:
+    def _compacted(
+        self, clipped: list[Message], total: int, retain: int, tools_tokens: int = 0
+    ) -> list[Message]:
         pinned = 1 if clipped and clipped[0].role == "user" else 0
         keep_from = select_compactable_range(clipped, retain, pinned)
         if keep_from is None:
             raise self._overflow(clipped, total)
         result = [*clipped[:pinned], summarise(clipped[pinned:keep_from]), *clipped[keep_from:]]
-        total = sum(estimate_message(m) for m in result)
+        total = sum(estimate_message(m) for m in result) + tools_tokens
         if total >= self.threshold_tokens:
             raise self._overflow(result, total)
         return result

@@ -1,7 +1,8 @@
 """Stub stdio MCP server for tests (stdlib only, newline-delimited JSON-RPC, synthetic data).
 
 Modes (argv[1:]): normal (no flag), --paged, --die-on-call, --never-answer, --version <v>,
---huge-line, --endless-pages, --ask-client <n>, --ignore-eof [--ignore-term].
+--huge-line, --endless-pages, --repeat-cursor, --bad-cursor, --rich,
+--deep-json, --no-read, --ask-client <n>, --ignore-eof [--ignore-term].
 --ignore-eof keeps the process alive after stdin EOF; --ignore-term also ignores SIGTERM (kill-only).
 Every message received is appended as one JSON line to the file named by MCP_STUB_LOG.
 """
@@ -45,7 +46,22 @@ def handle_list(req_id: Any, params: dict[str, Any]) -> None:
         sys.stdout.flush()
         time.sleep(30)
     elif "--endless-pages" in ARGS:
+        reply(req_id, {"tools": TOOLS[:1], "nextCursor": str(params.get("cursor", "0")) + "x"})
+    elif "--repeat-cursor" in ARGS:
         reply(req_id, {"tools": TOOLS[:1], "nextCursor": "again"})
+    elif "--bad-cursor" in ARGS:
+        reply(req_id, {"tools": TOOLS[:1], "nextCursor": 7})
+    elif "--rich" in ARGS:
+        big = {"type": "object", "properties": {f"p{i}": {"type": "string"} for i in range(3000)}}
+        wordy = {"name": "wordy", "description": "d" * 50_000, "inputSchema": {"type": "object"}}
+        reply(
+            req_id,
+            {"tools": [wordy, {"name": "bigschema", "description": "ok", "inputSchema": big}]},
+        )
+    elif "--deep-json" in ARGS:
+        sys.stdout.write("[" * 100_000 + "]" * 100_000 + "\n")
+        sys.stdout.flush()
+        time.sleep(30)
     elif "--paged" in ARGS:
         if params.get("cursor") == "p2":
             reply(req_id, {"tools": TOOLS[1:]})
@@ -72,6 +88,8 @@ def handle_call(req_id: Any, params: dict[str, Any]) -> None:
 def main() -> None:
     if "--ignore-term" in ARGS:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    if "--no-read" in ARGS:  # never reads stdin: a large write blocks the client
+        time.sleep(60)
     for line in sys.stdin:
         msg = json.loads(line)
         if LOG:

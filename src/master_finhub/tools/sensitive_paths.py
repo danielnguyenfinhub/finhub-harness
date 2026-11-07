@@ -51,7 +51,42 @@ SENSITIVE_PATH_PATTERNS: Final[tuple[str, ...]] = (
     "*/id_dsa",
     "*/id_ecdsa",
     "*/id_ed25519",
+    # audit lead 5: more token stores, project env files and process environments
+    "*/.config/gh/hosts.yml",
+    "*/.cargo/credentials",
+    "*/.cargo/credentials.toml",
+    "*/.config/anthropic",
+    "*/.config/anthropic/*",
+    "*/.env",
+    "*/.env.*",
+    "/proc/*/environ",
 )
+# audit lead 4: credential locations as path components, for words with shell wildcards
+_CRED_COMPONENTS: Final[tuple[tuple[str, ...], ...]] = (
+    (".ssh",),
+    (".aws",),
+    (".azure",),
+    (".gnupg",),
+    (".docker",),
+    (".kube",),
+    (".netrc",),
+    ("_netrc",),
+    (".npmrc",),
+    (".pypirc",),
+    (".git-credentials",),
+    (".env",),
+    ("id_rsa",),
+    ("id_dsa",),
+    ("id_ecdsa",),
+    ("id_ed25519",),
+    (".config", "gcloud"),
+    (".config", "anthropic"),
+    (".config", "gh", "hosts.yml"),
+    (".cargo", "credentials"),
+    (".cargo", "credentials.toml"),
+)
+_GLOB_RE: Final = re.compile(r"[*?\[]")
+_GLOB_PART_RE: Final = re.compile(r"\[[^\]]*\]|[*?]")
 PATH_MAX_CHARS: Final = 4096  # Linux PATH_MAX
 RESOLVE_COMPONENT_BUDGET: Final = 16_384  # components one top-level call may walk
 MAX_SYMLINKS: Final = 40  # = Linux MAXSYMLINKS
@@ -194,6 +229,31 @@ def _forms(path: str) -> tuple[str, str]:
     return f, f + "/"
 
 
+def _part_matches(part: str, name: str) -> bool:
+    """Could shell pattern `part` expand to `name`? A dotfile needs a literal leading dot, and a
+    pattern with nothing literal beyond that (`*`, `.*`, `??`) is too wide to call a match."""
+    part = part.casefold()
+    if not _GLOB_RE.search(part):
+        return part == name
+    dot = name[0] == "."
+    if dot and not part.startswith("."):
+        return False
+    rest = part[1:] if dot else part
+    if len(_GLOB_PART_RE.sub("", rest)) < (1 if dot else 2) and "[" not in rest:
+        return False
+    return fnmatch.fnmatchcase(name, part)
+
+
+def glob_hit(path: str) -> bool:
+    """True if a word with shell wildcards in a directory or file name could name a credential."""
+    parts = [p for p in path.replace("\\", "/").split("/") if p]
+    for entry in _CRED_COMPONENTS:
+        for i in range(len(parts) - len(entry) + 1):
+            if all(_part_matches(parts[i + j], n) for j, n in enumerate(entry)):
+                return True
+    return False
+
+
 def _hit(path: str) -> bool:
     return any(_PATTERN_RE.match(f) for f in _forms(path))
 
@@ -220,7 +280,7 @@ def sensitive_rule(
         s = os.path.expandvars(os.path.expanduser(raw))
         if len(s) > max_chars:
             return "path-too-long"
-        if _hit(_lexical(s)):
+        if _hit(_lexical(s)) or (_GLOB_RE.search(s) and glob_hit(s)):
             return "sensitive-path"
         if resolve and len(s) <= PATH_MAX_CHARS:
             try:
