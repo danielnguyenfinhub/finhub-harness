@@ -13,11 +13,14 @@ closes it so a hostile server cannot make the reader thread write forever.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
 import queue
 import re
 import shlex
+import stat
 import subprocess
 import threading
 import time
@@ -688,3 +691,110 @@ def mcp_tools(
                 shown = old
         tools.append(McpTool(client, info, why, keep, shown))
     return tools
+
+
+_STORE_VERSION: Final = 1
+_INFO_FIELDS: Final = ("name", "public_name", "description", "input_schema", "read_only", "digest")
+
+
+def _info_from_json(raw: Any) -> McpToolInfo:
+    """Rebuild one stored definition; any wrong shape or type raises ValueError (fail closed)."""
+    ok = (
+        isinstance(raw, dict)
+        and set(raw) == set(_INFO_FIELDS)
+        and all(isinstance(raw[k], str) for k in ("name", "public_name", "description", "digest"))
+        and isinstance(raw["input_schema"], dict)
+        and isinstance(raw["read_only"], bool)
+    )
+    if not ok:
+        raise ValueError("stored tool definition has the wrong shape")
+    return McpToolInfo(**raw)
+
+
+class ApprovalStore:
+    """Keeps the caller's half of the MCP contract: persist ``approved_digests`` and the approved
+    definitions between listings, so a changed tool stays quarantined after a restart and a caller
+    cannot forget to store them. One JSON file at a caller-supplied path, replaced atomically and
+    kept at mode 0600 (POSIX).
+
+    No file means a first listing (the baseline: ``previous`` is None). A file that cannot be read,
+    is not a regular file, can be written by group or others, or is not exactly the expected JSON
+    is not trusted: ``load`` answers an empty mapping, so every tool counts as new and comes back
+    quarantined until the operator enables it. The save that follows rewrites the file as a valid,
+    empty one, so the closed state persists. A tool the server stops listing is dropped from the
+    file and is quarantined as new if it comes back. Not wired into any entrypoint.
+    """
+
+    def __init__(self, path: str | os.PathLike[str]) -> None:
+        self._path = os.fspath(path)
+
+    def load(self) -> tuple[dict[str, str] | None, dict[str, McpToolInfo]]:
+        """(previous, approved_infos) to pass to ``mcp_tools``."""
+        try:
+            st = os.lstat(self._path)
+        except FileNotFoundError:
+            return None, {}
+        except OSError:
+            return {}, {}
+        try:
+            if not stat.S_ISREG(st.st_mode) or (os.name == "posix" and st.st_mode & 0o022):
+                raise ValueError("not a regular file, or writable by group or others")
+            with open(self._path, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, dict) or data.get("version") != _STORE_VERSION:
+                raise ValueError("unknown layout")
+            digests, raw_infos = data["digests"], data["infos"]
+            if not isinstance(digests, dict) or not isinstance(raw_infos, dict):
+                raise TypeError("digests and infos must be objects")
+            if not all(isinstance(k, str) and isinstance(v, str) for k, v in digests.items()):
+                raise ValueError("digests must map names to strings")
+            infos = {k: _info_from_json(v) for k, v in raw_infos.items()}
+            return dict(digests), infos
+        except (OSError, ValueError, KeyError, TypeError):  # JSONDecodeError is a ValueError
+            return {}, {}
+
+    def save(self, tools: Iterable[McpTool]) -> None:
+        """Write ``approved_digests(tools)`` and the approved definition of each such tool."""
+        tools = list(tools)
+        _, old = self.load()
+        digests = approved_digests(tools)
+        infos: dict[str, dict[str, Any]] = {}
+        for t in tools:
+            name = t._info.name
+            if name not in digests:
+                continue
+            info = t._info if not t.quarantined else old.get(name)
+            if info is not None and info.digest == digests[name]:
+                infos[name] = {k: getattr(info, k) for k in _INFO_FIELDS}
+        blob = json.dumps({"version": _STORE_VERSION, "digests": digests, "infos": infos})
+        tmp = f"{self._path}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(blob)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, self._path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+
+    def mcp_tools(
+        self,
+        client: McpClient,
+        *,
+        enabled: Collection[str] | Mapping[str, str] = (),
+        trusted_read_only: Collection[str] = (),
+    ) -> list[McpTool]:
+        """``mcp_tools`` with the stored baseline, then save the new one."""
+        previous, infos = self.load()
+        tools = mcp_tools(
+            client,
+            previous=previous,
+            enabled=enabled,
+            trusted_read_only=trusted_read_only,
+            approved_infos=infos,
+        )
+        self.save(tools)
+        return tools
