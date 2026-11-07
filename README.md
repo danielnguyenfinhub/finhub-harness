@@ -66,7 +66,7 @@ python -m venv .venv
 .venv/bin/python -m pytest -q
 ```
 
-Run the CLI with `master-finhub` (entry point `master_finhub.cli:main`).
+Run the CLI with `master-finhub` (entry point `master_finhub.cli:main`). The shipped CLI and server register only `EchoTool`, so the command guard, workspace fence, Docker engine, MCP client and permission modes are libraries that no shipped entrypoint wires yet.
 
 ## Reference repos and licences
 

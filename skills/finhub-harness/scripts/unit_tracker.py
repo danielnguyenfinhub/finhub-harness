@@ -14,7 +14,9 @@ Usage, run from the project root:
   uses it (adapted from references/hive/core/framework/host/playbook/runner.py:57 and :305
   (Apache-2.0), ideas only).
 Exit 0 ok; 3 `pending` found no unit left, or `claim` found none unclaimed (the job has converged);
-4 a claim or release was not granted (not-found, already-done, dead-lettered, owned-by-other, not-held);
+4 a claim or release was not granted (not-found, already-done, dead-lettered, owned-by-other, not-held),
+or an upsert named a dead-lettered unit (`UPSERT: dead-lettered`: a dead unit is final, so it is neither
+claimed nor written; the only way back is a new key);
 2 usage error or a refused write.
 A claim is one guarded UPDATE inside a locked transaction, so two workers never both get a unit
 (rules U9-U11 in the reference; adapted from
@@ -161,12 +163,22 @@ def _upsert(args: argparse.Namespace) -> int:
         if sets
         else "DO NOTHING"
     )
+    q = _ident(args.table, "table")
+    _dead_column(con, args.table, add=True)  # a dead-lettered unit is final: no write reaches it
+    if sets:
+        tail += f' WHERE {q}."{DEAD_COL}" IS NULL'
     with con:
-        con.execute(
-            f"INSERT INTO {_ident(args.table, 'table')} ({', '.join(_ident(c, 'column') for c in names)}) "
+        changed = con.execute(
+            f"INSERT INTO {q} ({', '.join(_ident(c, 'column') for c in names)}) "
             f"VALUES ({marks}) ON CONFLICT ({', '.join(_ident(k, 'column') for k in key)}) {tail}",
             vals,
-        )
+        ).rowcount
+        if not changed:
+            where, kv = _key_where(key, json.dumps({k: row[k] for k in key}))
+            gone = con.execute(f'SELECT "{DEAD_COL}" FROM {q} WHERE {where}', kv).fetchone()
+            if gone is not None and gone[0] is not None:
+                print("UPSERT: dead-lettered")
+                return 4
     print("OK " + json.dumps({k: row[k] for k in key}, sort_keys=True))
     return 0
 
@@ -209,6 +221,7 @@ def _claim(args: argparse.Namespace) -> int:
     if sqlite3.sqlite_version_info < (3, 35):
         raise Refused("claim needs SQLite 3.35 or newer (UPDATE ... RETURNING)")
     _claim_column(con, args.table)
+    _dead_column(con, args.table, add=True)  # the guard below must always carry `_failed IS NULL`
     con.row_factory = sqlite3.Row
     live = _open_where(con, args.table, done)  # not done and not dead-lettered
     guard = f'{live} AND ("{CLAIM_COL}" IS NULL OR "{CLAIM_COL}" = ?)'
