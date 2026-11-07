@@ -783,7 +783,11 @@ def _sensitive_word_rule(words: list[str], state: _State) -> str | None:
     A bare word is walked too when a file of that name exists (a symlink alias), and a word with
     wildcards is expanded against the real directory and each match that needs it is walked."""
     scan = _sp.current_scan() or _sp.Scan()
+    done: set[str] = set()  # state cannot change inside one call: read a repeated word once
     for w in words:
+        if w in done:
+            continue
+        done.add(w)
         try:
             forms = _word_forms(w, state)
         except _TooManyForms:
