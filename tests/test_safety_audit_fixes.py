@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from master_finhub.tools.safety import check_command
+from master_finhub.tools.safety import check_command, check_rule
 from master_finhub.tools.sensitive_paths import is_sensitive_path
 
 
@@ -93,6 +93,30 @@ def test_cd_then_relative_credential_denied(home: Path, tmp_path: Path) -> None:
     assert denied(f"cd {home}/.ssh && cat config")
     assert denied(f"cd {home}/.ssh; cat config")
     assert denied("cd ~/.ssh; cat id_rsa")
+
+
+def test_cd_to_an_allowed_directory_then_relative_alias_denied(home: Path, tmp_path: Path) -> None:
+    # the cd target is not itself a credential, so only the tracked directory can explain the denial
+    os.symlink(home / ".ssh" / "config", home / "projects" / "cfg")
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    os.chdir(other)
+    assert denied(f"cd {home}/projects && cat cfg")
+    assert denied("cd ~/projects; cat cfg")
+    assert not denied(f"cd {home}/projects && cat nothing")
+    assert not denied("cat cfg")  # no such file where the process is
+
+
+def test_tracked_variable_cap_refuses_a_later_dollar_word() -> None:
+    many = "; ".join(f"v{i}=x" for i in range(70))
+    assert check_rule(f"{many}; d=.aws; cat ~/$d/credentials") == "check-failed"
+    assert check_rule(f"{many}; d=.aws") is None
+
+
+def test_glob_names_are_case_folded_outside_the_home_too() -> None:
+    assert denied("cat proj/.SS?/config")
+    assert denied("cat proj/.AW*/credentials")
+    assert denied("cat ~/.SS?/config")
 
 
 def test_cd_then_bare_symlink_denied(home: Path, tmp_path: Path) -> None:

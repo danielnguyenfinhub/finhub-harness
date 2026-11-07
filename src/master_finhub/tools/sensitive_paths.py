@@ -5,6 +5,10 @@ failure (expand, walk, match) is a denial. The walk uses POSIX ``*at`` calls (``
 ``O_PATH``), so the module only imports on Linux-like hosts; on Windows it fails loudly rather
 than open. Known false positive: a path through a directory the process may search but not read
 is still walked (O_PATH needs search only); permission errors are always denials, never "missing".
+
+Not covered (a path the guard cannot see in the command text): paths read from a pipe, from stdin,
+from a file named by an option, or built by an interpreter; hard links are matched by inode only
+for the credential files found under the home directory (best effort, bounded stat of the list).
 """
 
 from __future__ import annotations
@@ -87,6 +91,20 @@ _CRED_COMPONENTS: Final[tuple[tuple[str, ...], ...]] = (
 )
 _GLOB_RE: Final = re.compile(r"[*?\[]")
 _GLOB_PART_RE: Final = re.compile(r"\[[^\]]*\]|[*?]")
+_SINGLE_CLASS_RE: Final = re.compile(r"\[([^\]\[!^])\]")  # `[s]` is the literal `s`
+_POSIX_CLASSES: Final = (
+    ("[:alpha:]", "a-zA-Z"),
+    ("[:digit:]", "0-9"),
+    ("[:alnum:]", "a-zA-Z0-9"),
+    ("[:lower:]", "a-z"),
+    ("[:upper:]", "A-Z"),
+    ("[:xdigit:]", "0-9a-fA-F"),
+    ("[:space:]", " \t"),
+)
+GLOB_ENTRIES_PER_WORD: Final = 4096  # directory entries listed for one glob word
+GLOB_ENTRIES_PER_CALL: Final = 65_536  # ... for one top-level call (then path-budget)
+GLOB_MATCHES: Final = 256  # matches one glob word keeps per path component
+CRED_STAT_BUDGET: Final = 512  # entries looked at when listing the credential files under HOME
 PATH_MAX_CHARS: Final = 4096  # Linux PATH_MAX
 RESOLVE_COMPONENT_BUDGET: Final = 16_384  # components one top-level call may walk
 MAX_SYMLINKS: Final = 40  # = Linux MAXSYMLINKS
@@ -108,6 +126,8 @@ class Scan:
     cmd: dict[str, str | None] = field(default_factory=dict)
     path: dict[str, str | None] = field(default_factory=dict)
     components_left: int = field(default_factory=lambda: RESOLVE_COMPONENT_BUDGET)
+    entries_left: int = field(default_factory=lambda: GLOB_ENTRIES_PER_CALL)
+    inodes: frozenset[tuple[int, int]] | None = None  # (dev, ino) of credential files, lazily
 
 
 _SCAN: Final[contextvars.ContextVar[Scan | None]] = contextvars.ContextVar(
@@ -229,9 +249,24 @@ def _forms(path: str) -> tuple[str, str]:
     return f, f + "/"
 
 
+def _posix(part: str) -> str:
+    for cls, rng in _POSIX_CLASSES:
+        part = part.replace(cls, rng)
+    return part
+
+
+def _shell_match(part: str, name: str) -> bool:
+    """Could shell pattern `part` expand to `name`? A wildcard never matches a leading dot."""
+    part = _posix(part.casefold())
+    if name.startswith(".") and not part.startswith("."):
+        return False
+    return fnmatch.fnmatchcase(name, part)
+
+
 def _part_matches(part: str, name: str) -> bool:
     """Could shell pattern `part` expand to `name`? A dotfile needs a literal leading dot, and a
-    pattern with nothing literal beyond that (`*`, `.*`, `??`) is too wide to call a match."""
+    pattern with nothing literal beyond that (`*`, `.*`, `??`, a bare `[a-z]*`) is too wide to
+    call a match here; glob_hit_wide judges those against the home directory instead."""
     part = part.casefold()
     if not _GLOB_RE.search(part):
         return part == name
@@ -239,9 +274,11 @@ def _part_matches(part: str, name: str) -> bool:
     if dot and not part.startswith("."):
         return False
     rest = part[1:] if dot else part
-    if len(_GLOB_PART_RE.sub("", rest)) < (1 if dot else 2) and "[" not in rest:
+    lit = _GLOB_PART_RE.sub("", _SINGLE_CLASS_RE.sub(r"\1", rest))
+    exempt = "[" in rest if dot else _SINGLE_CLASS_RE.search(rest) is not None
+    if len(lit) < (1 if dot else 2) and not exempt:
         return False
-    return fnmatch.fnmatchcase(name, part)
+    return fnmatch.fnmatchcase(name, _posix(part))
 
 
 def glob_hit(path: str) -> bool:
@@ -252,6 +289,139 @@ def glob_hit(path: str) -> bool:
             if all(_part_matches(parts[i + j], n) for j, n in enumerate(entry)):
                 return True
     return False
+
+
+def glob_hit_wide(path: str) -> bool:
+    """A wildcard that can match a credential name even with nothing literal in it (`~/.*`,
+    `~/.??*`, `~/.config/*`, `~/.*/gcloud/x`): refused only when the literal directory in front
+    of the first wildcard is the home directory or a credential parent, so `ls .*` or
+    `cat ./[0-9]*.md` in a project directory stay allowed. Needs an absolute path (a relative
+    word is joined to a known directory by the caller first)."""
+    p = path.replace("\\", "/")
+    if not p.startswith("/"):
+        return False
+    comps = [c for c in p.split("/") if c not in ("", ".")]
+    n = next((i for i, c in enumerate(comps) if _GLOB_RE.search(c)), None)
+    if n is None:
+        return False
+    rest = comps[n:]
+    if (
+        len(comps) > 2
+        and comps[0].casefold() == "proc"
+        and _shell_match(comps[2], "environ")
+        and 0 < n <= 2
+    ):
+        return True  # /proc/<pid or self>/environ spelled with a wildcard in the last name
+    d = posixpath.normpath("/" + "/".join(comps[:n])).casefold()
+    homes = {os.path.expanduser("~")}
+    with contextlib.suppress(OSError):
+        homes.add(os.path.realpath(os.path.expanduser("~")))
+    for home in homes:
+        for entry in _CRED_COMPONENTS:
+            for s in range(len(entry)):
+                if s == 0 and not entry[0].startswith("."):
+                    continue  # `~/*` could name ~/id_rsa; only a wildcard with literals does
+                if d != posixpath.join(home, *entry[:s]).casefold():
+                    continue
+                need = len(entry) - s
+                if len(rest) >= need and all(
+                    _shell_match(r, e) for r, e in zip(rest, entry[s:], strict=False)
+                ):
+                    return True
+    return False
+
+
+def _cred_inodes(scan: Scan) -> frozenset[tuple[int, int]]:
+    """(device, inode) of the credential files under the home directory. Best effort: the list
+    is _CRED_COMPONENTS, a directory is listed two levels deep, and at most CRED_STAT_BUDGET
+    entries are looked at."""
+    if scan.inodes is not None:
+        return scan.inodes
+    out: set[tuple[int, int]] = set()
+    left = CRED_STAT_BUDGET
+    home = os.path.expanduser("~")
+    todo: deque[tuple[str, int]] = deque((posixpath.join(home, *e), 0) for e in _CRED_COMPONENTS)
+    while todo and left > 0:
+        path, depth = todo.popleft()
+        left -= 1
+        try:
+            st = os.lstat(path)
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode):
+            out.add((st.st_dev, st.st_ino))
+        elif stat.S_ISDIR(st.st_mode) and depth < 2:
+            try:
+                with os.scandir(path) as it:
+                    todo.extend((e.path, depth + 1) for e in it)
+            except OSError:
+                continue
+    scan.inodes = frozenset(out)
+    return scan.inodes
+
+
+def hard_link_hit(path: str, scan: Scan) -> bool:
+    """A regular file with more than one link that is the same inode as a credential file."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    return (
+        stat.S_ISREG(st.st_mode)
+        and st.st_nlink > 1
+        and (st.st_dev, st.st_ino) in _cred_inodes(scan)
+    )
+
+
+def _multi_link(path: str) -> bool:
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return stat.S_ISREG(st.st_mode) and st.st_nlink > 1
+
+
+def glob_rule(raw: str, scan: Scan) -> str | None:
+    """Expand a word with wildcards against the real directories (component by component, no
+    recursion past the word's own components, GLOB_ENTRIES_PER_WORD entries per word) and walk
+    every match that is a link, sits behind a link or has other links. 'path-budget' when the
+    call's entry budget runs out. Best effort: a directory with more entries is read in part."""
+    try:
+        s = os.path.expandvars(os.path.expanduser(raw))
+        parts = [c for c in s.split("/") if c not in ("", ".")]
+        bases: list[tuple[str, bool]] = [("/" if s.startswith("/") else os.getcwd(), False)]
+        word_left = GLOB_ENTRIES_PER_WORD
+        for part in parts:
+            nxt: list[tuple[str, bool]] = []
+            for base, walk in bases:
+                if not _GLOB_RE.search(part):
+                    child = posixpath.join(base, part)
+                    nxt.append((child, walk))
+                    continue
+                try:
+                    it = os.scandir(base)
+                except OSError:
+                    continue  # unreadable or missing: nothing to name
+                with it:
+                    for e in it:
+                        word_left -= 1
+                        scan.entries_left -= 1
+                        if scan.entries_left < 0:
+                            return "path-budget"
+                        if word_left < 0:
+                            break
+                        if _shell_match(part, e.name):
+                            nxt.append((e.path, walk or e.is_symlink()))
+            bases = nxt[:GLOB_MATCHES]
+            if not bases:
+                return None
+        for path, walk in bases:
+            # a plain match is judged by name (glob_hit); only an alias needs the walk
+            if (walk or _multi_link(path)) and sensitive_rule(path, max_chars=len(path) + 1):
+                return "sensitive-path"
+        return None
+    except Exception:  # noqa: BLE001 - fail closed
+        return "sensitive-path"
 
 
 def _hit(path: str) -> bool:
@@ -280,14 +450,14 @@ def sensitive_rule(
         s = os.path.expandvars(os.path.expanduser(raw))
         if len(s) > max_chars:
             return "path-too-long"
-        if _hit(_lexical(s)) or (_GLOB_RE.search(s) and glob_hit(s)):
+        if _hit(_lexical(s)) or (_GLOB_RE.search(s) and (glob_hit(s) or glob_hit_wide(s))):
             return "sensitive-path"
         if resolve and len(s) <= PATH_MAX_CHARS:
             try:
                 resolved = realpath_bounded(s, current_scan() or Scan())
             except BudgetExceeded:
                 return "path-budget"
-            if _hit(resolved):
+            if _hit(resolved) or hard_link_hit(resolved, current_scan() or Scan()):
                 return "sensitive-path"
         return None
     except Exception:  # noqa: BLE001 - fail closed

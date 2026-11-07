@@ -277,20 +277,48 @@ def has_ask_first(text: str) -> bool:
 
 
 SENDER_RE = re.compile(r"approved list", re.IGNORECASE)  # the sending worker's file says this
+NEGATION_RE = re.compile(r"\b(never|not|no|without)\b|n't\b", re.IGNORECASE)
+READ_TOOL_RE = re.compile(r"mcp__[^_].*?__(search|get|list|read|fetch|query|lookup|find|describe)")
+READ_ONLY_RE = re.compile(r"read[- ]only|research", re.IGNORECASE)
+
+
+def body_lines(text: str) -> list[str]:
+    """Prose lines of the agent body: after the frontmatter, outside code fences."""
+    lines = text.splitlines()
+    end = lines.index("---", 1) if "---" in lines[1:] else -1
+    return [line for _, line in prose("\n".join(lines[end + 1 :]))]
+
+
+def tool_names(raw: str) -> list[str]:
+    """Items of a tools or disallowedTools value: a YAML comment is cut, quotes and dashes dropped."""
+    raw = re.split(r"(?:^|\s)#", raw, maxsplit=1)[0]
+    return [t for t in (x.strip("\"'[]") for x in re.split(r"[\s,]+", raw)) if t and t != "-"]
 
 
 def check_connector_scope(path: Path, data: dict[str, str], text: str) -> None:
     """In a harness whose orchestrator has the Ask-first block, only the sending worker may hold
     connector tools. A worker with no `tools:` line inherits every tool, connectors included, and
     one that lists `mcp__` tools can call them without the orchestrator's yes. The sender is the
-    agent whose prose says it works from an "approved list" (Step 3 wording); there is no
-    sturdier marker, because `## Required connectors` lines must stay bare server names."""
-    if SENDER_RE.search("\n".join(line for _, line in prose(text))):
+    agent whose body prose (not frontmatter, not a code fence) has an "approved list" line with no
+    negation (Step 3 wording); there is no sturdier marker, because `## Required connectors` lines
+    must stay bare server names. A read-only research worker that lists only read-style connector
+    tools (search, get, list, ...) is not warned: it cannot send."""
+    lines = body_lines(text)
+    if any(SENDER_RE.search(ln) and not NEGATION_RE.search(ln) for ln in lines):
         return
-    tools, barred = data.get("tools", ""), data.get("disallowedTools", "")
-    if "mcp__" in barred or (tools and "mcp__" not in tools):
-        return
-    why = "has no tools: line, so it inherits connector tools" if not tools else "lists mcp__ tools"
+    tools, barred = tool_names(data.get("tools", "")), tool_names(data.get("disallowedTools", ""))
+    if not tools:
+        if "mcp__*" in barred:
+            return
+        why = "has no tools: line, so it inherits connector tools"
+    elif "*" in tools:
+        why = 'has tools: "*", so it holds connector tools'
+    else:
+        mcp = [t for t in tools if t.startswith("mcp__")]
+        read_only = any(READ_ONLY_RE.search(ln) and not NEGATION_RE.search(ln) for ln in lines)
+        if not mcp or (read_only and all(READ_TOOL_RE.match(t) for t in mcp)):
+            return
+        why = "lists mcp__ tools"
     msg = f"worker {why} but is not the sending worker"
     msg += "; fix: give it a tools: allowlist without mcp__<server>__* tools; only the sender lists them"
     report("WARN", path, "connector-tools-unscoped", msg)

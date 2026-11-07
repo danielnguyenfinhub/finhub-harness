@@ -18,13 +18,13 @@ Run from the project root. `DB` is a file path such as `_workspace/units.db`.
 | `upsert DB --table T --row JSON` | Writes one row by key. Setting the done column marks the unit done; setting it to null reopens it. |
 | `pending DB --table T [--limit N]` | Prints each undone row as a JSON line, then `PENDING: n`. Exit 3 when none is left. |
 | `status DB --table T` | Prints `TOTAL`, `DONE`, `PENDING` and `STATE: open` or `converged`. |
-| `claim DB --table T --worker W [--key JSON]` | Takes the next unit nobody holds, or the unit named by `--key` (a JSON object with exactly the key columns). Prints `CLAIM: ok <row>` or a typed outcome. |
+| `claim DB --table T --worker W [--key JSON]` | Takes the next unit nobody holds, or the unit named by `--key` (a JSON object with exactly the key columns). Prints `CLAIM: ok <row>` or a typed outcome. A dead-lettered unit is never claimable (`CLAIM: dead-lettered` for `--key`). |
 | `release DB --table T --worker W --key JSON` | Gives a unit back; only its holder can. Prints `RELEASE: ok` or `RELEASE: not-held`. |
-| `deadletter DB --table T --reason TEXT` | Records every unit still open as failed, with the reason, once. Prints each as `DEAD: <row>` and `DEAD-LETTERED: n`; exit 3 when there was nothing to record. `pending` and `status` then leave those units out, and `status` prints `FAILED: n`. |
+| `deadletter DB --table T --reason TEXT` | Records every unit still open as failed, with the reason, once. Prints each as `DEAD: <row>` and `DEAD-LETTERED: n`; exit 3 when there was nothing to record. `pending` and `status` then leave those units out, and `status` prints `FAILED: n`. A dead unit is final: it is not claimable and not writable (`upsert` answers `UPSERT: dead-lettered`, exit 4). |
 
-`upsert` also takes `--worker W`: the write is refused unless W holds the claim on that unit.
+`upsert` also takes `--worker W`: the write is refused unless W holds the claim on that unit. An upsert on a dead-lettered unit is refused whoever sends it, so a unit is never both done and failed.
 
-Exit 0 ok; 3 nothing pending, or `claim` found nothing unclaimed; 4 a claim or release was not granted; 2 usage error or a refused write (`REFUSED: ...` on stdout).
+Exit 0 ok; 3 nothing pending, or `claim` found nothing unclaimed; 4 a claim or release was not granted, or an upsert named a dead-lettered unit; 2 usage error or a refused write (`REFUSED: ...` on stdout).
 
 Example, with synthetic names: `init DB --table sweep --key lender --cols rate,note --done checked_at --seed lenders.txt`, then each worker runs `upsert DB --table sweep --row '{"lender":"LenderA","rate":"6.19","checked_at":"2026-10-18"}'`, and the orchestrator loops on `pending` until it exits 3. The script does not read dates; the caller writes them.
 
@@ -41,7 +41,7 @@ Example, with synthetic names: `init DB --table sweep --key lender --cols rate,n
 | U7 | Only tables made by `init` accept writes. Names must be letters, digits and underscores starting with a letter, so the script's own table (`_unit_registry`) and any name with SQL in it are refused. |
 | U8 | A table cannot be redefined by a later `init` with a different key, columns or done column, and a read command on a missing file does not create one. |
 | U9 | A claim is one guarded UPDATE: the unit is taken only if it is undone and nobody else holds it. Two workers never get the same unit, and a worker that loses the race gets the next one or `none-left` (exit 3). Never read a unit and write it as two steps. |
-| U10 | A claim answers with a typed outcome: `ok`, `none-left`, `not-found`, `already-done`, `dead-lettered` or `owned-by-other`. A dead-lettered unit (C3) is never handed out by `claim`: with only such units left, `claim` is `none-left`, and `claim --key` on one is `dead-lettered` (exit 4). Claiming a unit you already hold is `ok`. Only the holder releases a unit. A released unit can be claimed again. |
+| U10 | A claim answers with a typed outcome: `ok`, `none-left`, `not-found`, `already-done`, `dead-lettered` or `owned-by-other`. A dead-lettered unit (C3) is never handed out by `claim`: with only such units left, `claim` is `none-left`, and `claim --key` on one is `dead-lettered` (exit 4). A dead-lettered unit is not writable either: `upsert` on it prints `UPSERT: dead-lettered` (exit 4), even for its holder, and setting its done column to null does not reopen it; the only way back is a new key (C5). Claiming a unit you already hold is `ok`. Only the holder releases a unit. A released unit can be claimed again. |
 | U11 | `upsert --worker W` is refused unless W holds the claim, so a worker whose claim was released or never made cannot write. Without `--worker` an upsert behaves as before. The claim is kept in the script-owned column `_claimed_by`, added by the first `claim`. |
 
 ## 3a. The convergence loop (rules C1-C5)
@@ -54,7 +54,7 @@ For a phase that must keep going until every unit is done or given up on, the or
 | C2 | The loop stops when `pending` exits 3, when the round limit the orchestrator wrote into its plan is reached, or when the failure-fraction breaker trips: in one round, the share of workers that ended `STATUS: blocked` or failed is above the limit the plan names. State both limits in the plan before the first round; the script has no default for either. |
 | C3 | After the loop stops with units still open, run `deadletter` once with a reason that names why (round limit, breaker, or the first blocker). The units are recorded as failed, and the report lists every one with its reason. |
 | C4 | `deadletter` records a unit once. Calling it again lists nothing and exits 3, so a leftover unit is never reported twice for the same stop. |
-| C5 | A re-run is a resume: the next run starts at `pending`, which leaves done and failed units out. A failed unit comes back only if a person decides to retry it; no command reopens one, so the orchestrator asks, and then writes the unit as a new key. |
+| C5 | A re-run is a resume: the next run starts at `pending`, which leaves done and failed units out. A failed unit comes back only if a person decides to retry it; no command reopens one, and neither a claim nor an upsert (null done column included) reaches it, so the orchestrator asks, and then writes the unit as a new key; a new key is the only way back. |
 
 ## 4. How it fits with the rest
 

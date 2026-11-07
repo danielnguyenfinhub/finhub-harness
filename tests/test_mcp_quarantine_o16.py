@@ -59,7 +59,9 @@ def test_first_listing_is_the_baseline_nothing_is_quarantined() -> None:
 
 def test_new_write_tool_is_refused_with_a_named_reason() -> None:
     client = FakeClient([*BASE, info("delete_record", read_only=False)])
-    tools = {t.spec.name: t for t in mcp_tools(client, previous={"get_record", "update_record"})}
+    tools = {
+        t.spec.name: t for t in mcp_tools(client, previous={"get_record": "", "update_record": ""})
+    }
     with pytest.raises(McpToolError) as err:
         tools["mcp__crm__delete_record"].run({})
     assert "delete_record" in str(err.value) and "quarantined" in str(err.value)
@@ -68,7 +70,9 @@ def test_new_write_tool_is_refused_with_a_named_reason() -> None:
 
 def test_existing_tools_stay_callable_after_a_refresh() -> None:
     client = FakeClient([*BASE, info("delete_record", read_only=False)])
-    tools = {t.spec.name: t for t in mcp_tools(client, previous={"get_record", "update_record"})}
+    tools = {
+        t.spec.name: t for t in mcp_tools(client, previous={"get_record": "", "update_record": ""})
+    }
     assert tools["mcp__crm__update_record"].run({}) == "ran update_record"
 
 
@@ -77,7 +81,9 @@ def test_new_operator_trusted_tool_is_not_quarantined() -> None:
     tools = {
         t.spec.name: t
         for t in mcp_tools(
-            client, previous={"get_record", "update_record"}, trusted_read_only={"list_records"}
+            client,
+            previous={"get_record": "", "update_record": ""},
+            trusted_read_only={"list_records"},
         )
     }
     assert tools["mcp__crm__list_records"].run({}) == "ran list_records"
@@ -88,7 +94,7 @@ def test_enabling_a_quarantined_tool_by_name_lets_it_run() -> None:
     tools = {
         t.spec.name: t
         for t in mcp_tools(
-            client, previous={"get_record", "update_record"}, enabled={"delete_record"}
+            client, previous={"get_record": "", "update_record": ""}, enabled={"delete_record"}
         )
     }
     assert tools["mcp__crm__delete_record"].run({}) == "ran delete_record"

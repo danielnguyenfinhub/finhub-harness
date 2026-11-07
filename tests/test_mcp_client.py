@@ -145,7 +145,7 @@ def test_server_request_flood_closes_session() -> None:
 def test_public_name_rules() -> None:
     assert public_tool_name("stub", "echo").startswith("mcp__stub__echo_")
     long = public_tool_name("stub", "t" * 100)
-    assert len(long) == 64 and long[-13] == "_" and int(long[-12:], 16) >= 0
+    assert len(long) == 64 and long[-33] == "_" and int(long[-32:], 16) >= 0
     assert public_tool_name("stub", "a.b") != public_tool_name("stub", "a_b")
     assert public_tool_name("stub", "a.b").startswith("mcp__stub__a_b_")
 
