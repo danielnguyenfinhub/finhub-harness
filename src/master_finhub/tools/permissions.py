@@ -16,13 +16,18 @@ holding an expansion, glob, brace, backslash, ``$'..'`` or other form the guard 
 then allows only the options each reader command lists in ``OPTION_ALLOWLIST``. Workspace-write
 mode compares path parts after folding ``.``, ``..`` and repeated slashes, looks inside
 ``key=value`` words, treats a word that an expansion or glob could turn into a protected name as a
-hit, and fails closed on text it cannot scan. Known gaps: an interpreter that builds a path at run
-time (``python -c``), a symlink created in the same command, and ``git diff`` programs chosen by
-repository attributes.
+hit, and fails closed on text it cannot scan. It also refuses writers that act on the working
+directory without naming a file once ``cd`` has entered a protected directory, git commands that
+rewrite tracked files, hard links to protected files, symlinks made and used in one command, and
+function definitions in a command that also changes directory. Known gaps: an interpreter that
+builds a path at run time (``python -c``), an archive or patch run at the workspace root that
+names a protected file, and ``git diff`` programs chosen by repository attributes. Read-only mode
+leaves protected files readable by design.
 """
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import stat
@@ -792,6 +797,27 @@ GIT_REWRITE: Final = frozenset(
      "gc", "prune", "repack", "worktree", "submodule", "update-index", "symbolic-ref",
      "maintenance"]
 )  # fmt: skip
+FUNCTION_RE: Final = re.compile(
+    r"(?<![\w$./-])function\s+\S|(?<![\w$.:-])[A-Za-z_][\w.:-]*\s*\(\s*\)"
+)
+CD_RE: Final = re.compile(r"(?<![\w./-])(cd|pushd|popd|chdir)(?![\w-])")
+FUNCTION_WHY: Final = (
+    "it defines a shell function in a command that also changes directory, so the guard "
+    "cannot tell where a later call of the function leaves the shell"
+)
+CWD_WRITER_WHY: Final = (
+    "it writes into the current directory, which is or holds a protected file, without naming "
+    "the file it writes"
+)
+DECOMPRESS_NAMES: Final = frozenset(["gunzip", "bunzip2", "unxz", "unzstd", "uncompress", "unlzma"])
+COMPRESS_NAMES: Final = frozenset(["gzip", "bzip2", "xz", "zstd", "lzma"])
+GIT_WORKTREE_SUBS: Final = frozenset(
+    ["checkout", "restore", "switch", "reset", "stash", "apply", "checkout-index"]
+)
+INTO_DIR_WHY: Final = (
+    "it puts a file into a directory that holds a protected entry, under the name the source "
+    "has, and that name may be the protected one"
+)
 GIT_REMOTE_WRITE: Final = frozenset(
     ["add", "set-url", "rename", "remove", "rm", "set-head", "prune", "update", "set-branches"]
 )
@@ -1041,6 +1067,14 @@ def _legacy_scan(command: str, protected: Sequence[str]) -> bool:
     return trio and (">" in command or _WRITER_RE.search(command) is not None)
 
 
+def _sensitive_dir(cwd: Cwd, protected: Sequence[str]) -> bool:
+    """Is this directory (below the root) a protected entry, inside one, or the parent of one?"""
+    if not cwd:
+        return False
+    parts: list[list[Piece]] = [[("L", p)] for p in cwd]
+    return _parts_hit(parts, protected) or _covers(parts, protected, root_too=False)
+
+
 @dataclass
 class _Run:
     """One pass over a command: the tracked directory, the directory stack and the context."""
@@ -1050,12 +1084,60 @@ class _Run:
     cwd: Cwd
     depth: int
     dirs: list[Cwd] = field(default_factory=list)
+    links: list[tuple[str, ...]] = field(default_factory=list)  # symlinks made in this command
+    inodes: set[tuple[int, int]] | None = None
 
     def hit(self, w: _Word, *, split: bool = True) -> bool:
-        return _word_hits(w, self.protected, self.root, self.cwd, split=split)
+        return (
+            _word_hits(w, self.protected, self.root, self.cwd, split=split)
+            or self.on_link(w)
+            or self.hard_link(w)
+        )
 
     def cov(self, w: _Word, *, root_too: bool = True) -> bool:
         return _word_covers(w, self.protected, self.root, self.cwd, root_too=root_too)
+
+    def on_link(self, w: _Word) -> bool:
+        """Does the word name, or sit below, a symlink this command made to a directory that
+        holds a protected entry? The link does not exist yet, so its real target cannot be read."""
+        if not self.links:
+            return False
+        for form in _forms(w, self.cwd, self.root):
+            for link in self.links:
+                if len(form) >= len(link) and all(
+                    _part_matches(form[i], link[i]) for i in range(len(link))
+                ):
+                    return True
+        return False
+
+    def hard_link(self, w: _Word) -> bool:
+        """Is the word an existing hard link to a protected file (same inode)? Checked only for
+        words of a command that is not a plain read; a linked name is a protected file."""
+        if self.cwd is None:
+            return False
+        for cand in _candidates(w.pieces):
+            if not all(k == "L" for k, _ in cand):
+                continue
+            text = "".join(t for _, t in cand)
+            if not text or len(text) >= 1024 or "\x00" in text or text.startswith("-"):
+                continue
+            path = os.path.join(str(self.root), *self.cwd, os.path.expanduser(text))
+            try:
+                st = os.stat(path)
+            except (OSError, ValueError):
+                continue
+            if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
+                if self.inodes is None:
+                    self.inodes = _protected_inodes(self.root, self.protected)
+                if (st.st_dev, st.st_ino) in self.inodes:
+                    return True
+        return False
+
+    def sensitive_cwd(self) -> bool:
+        """Is the tracked working directory (below the root) a protected directory, inside one,
+        or the parent of a protected entry? A command that writes into it without naming a file
+        can then overwrite a protected file."""
+        return _sensitive_dir(self.cwd, self.protected)
 
     def reaches_root(self, w: _Word) -> bool:
         return not w.literal or self.cov(w)
@@ -1069,9 +1151,12 @@ class _Run:
         )
 
     def chdir(self, text: str) -> Cwd:
-        if self.cwd is None and not text.startswith(("/", "~")):
+        return self.chdir_from(self.cwd, text)
+
+    def chdir_from(self, cwd: Cwd, text: str) -> Cwd:
+        if cwd is None and not text.startswith(("/", "~")):
             return None
-        joined = os.path.join(str(self.root), *(self.cwd or ()), os.path.expanduser(text))
+        joined = os.path.join(str(self.root), *(cwd or ()), os.path.expanduser(text))
         rel = os.path.relpath(os.path.realpath(joined), os.path.realpath(self.root))
         return tuple(p for p in PurePosixPath(rel).parts if p != ".")
 
@@ -1107,6 +1192,14 @@ class _Run:
         for w in args:
             if self.hit(w, split=split) or self.hidden(w, interp):
                 return PROTECTED_WHY
+        if self.sensitive_cwd():
+            why = self.cwd_writer(name, texts)
+            if why:
+                return why
+        if name in ("cp", "mv", "ln", "install", "rsync"):
+            why = self.into_protected_dir(name, args)
+            if why:
+                return why
         if name in _SHELLS or name == "eval":
             bodies = [w.text for w in args if w.literal and not w.text.startswith("-")]
             if name == "eval":
@@ -1117,6 +1210,7 @@ class _Run:
                     return why
         if cd:
             self.change_dir(name, args)
+        self.note_links(name, args)
         return None
 
     def change_dir(self, name: str, args: list[_Word]) -> None:
@@ -1182,18 +1276,212 @@ class _Run:
             return self.git_denial(args)
         return None
 
+    def cwd_writer(self, name: str, texts: list[str]) -> str | None:
+        """In a protected directory (or a parent of a protected entry): a command that writes
+        files whose names it takes from an archive, a patch or its own arguments."""
+        short = _short_letters(texts)
+        if name == "tar":
+            bundle = set(texts[0]) if texts and not texts[0].startswith("-") else set()
+            if "x" in (short | bundle) or any(
+                _long_prefix(t, "extract") or _long_prefix(t, "get") for t in texts
+            ):
+                return CWD_WRITER_WHY
+        elif name == "cpio":
+            if short & set("ip") or any(
+                _long_prefix(t, "extract") or _long_prefix(t, "pass-through") for t in texts
+            ):
+                return CWD_WRITER_WHY
+        elif name == "unzip":
+            if not short & set("ltpvzZcd"):
+                return CWD_WRITER_WHY
+        elif name == "patch":
+            if not any(_long_prefix(t, "dry-run") for t in texts):
+                return CWD_WRITER_WHY
+        elif name in DECOMPRESS_NAMES or (
+            name in COMPRESS_NAMES
+            and (short & {"d"} or any(_long_prefix(t, "decompress") for t in texts))
+        ):
+            quiet = any(_long_prefix(t, "stdout") or _long_prefix(t, "test") for t in texts) or any(
+                _long_prefix(t, "list") for t in texts
+            )
+            if not (short & set("ctl") or quiet or "--to-stdout" in texts):
+                return CWD_WRITER_WHY
+        return None
+
+    def copy_parts(self, name: str, args: list[_Word]) -> tuple[list[_Word], _Word] | None:
+        """(sources, destination) of cp, mv, ln, install or rsync, or None if unclear. A lone
+        ``ln`` source is linked into the working directory under its own name."""
+        pos: list[_Word] = []
+        tdir: _Word | None = None
+        i = 0
+        while i < len(args):
+            w = args[i]
+            t = w.text
+            if w.literal and t == "--":
+                pos += args[i + 1 :]
+                break
+            if w.literal and t.startswith("-") and t != "-":
+                if name == "rsync":
+                    pass
+                elif t.startswith("--") and _long_prefix(t, "target-directory"):
+                    if "=" in t:
+                        tdir = _Word(pieces=list(_candidates(w.pieces)[1]))
+                    elif i + 1 < len(args):
+                        tdir = args[i + 1]
+                        i += 1
+                elif not t.startswith("--") and t.endswith("t") and i + 1 < len(args):
+                    tdir = args[i + 1]
+                    i += 1
+            else:
+                pos.append(w)
+            i += 1
+        if tdir is not None:
+            return pos, tdir
+        if len(pos) >= 2:
+            return pos[:-1], pos[-1]
+        if len(pos) == 1 and name == "ln":
+            return pos, _Word(pieces=[("L", ".")])
+        return None
+
+    def into_protected_dir(self, name: str, args: list[_Word]) -> str | None:
+        """A file copied, moved or linked into a directory that holds a protected entry, where
+        the file keeps the name it has at the source: ``cp x/settings.json .claude/``."""
+        parts = self.copy_parts(name, args)
+        if parts is None:
+            return None
+        sources, dest = parts
+        if not self.cov(dest, root_too=False):
+            return None
+        for src in sources:
+            base = PurePosixPath(src.text).name if src.literal else ""
+            if not src.literal or base in ("", ".", ".."):
+                return INTO_DIR_WHY
+            if self.hit(_Word(pieces=[*dest.pieces, ("L", "/" + base)]), split=False):
+                return INTO_DIR_WHY
+        return None
+
+    def note_links(self, name: str, args: list[_Word]) -> None:
+        """Remember a symlink this command makes to a directory that holds a protected entry,
+        so a later word of the same command that goes through it is refused."""
+        texts = [w.text for w in args]
+        short = _short_letters(texts)
+        symbolic = "s" in short or any(
+            _long_prefix(t, "symbolic" if name == "ln" else "symbolic-link") for t in texts
+        )
+        if name not in ("ln", "cp") or not symbolic or self.cwd is None:
+            return
+        parts = self.copy_parts(name, args)
+        if parts is None:
+            return
+        sources, dest = parts
+        if not dest.literal:
+            return
+        dparts = _split_parts(dest.pieces, self.cwd)
+        names = tuple("".join(t for _, t in p).casefold() for p in dparts)
+        if ".." in names:
+            return
+        inside = (self.root / Path(*names)).is_dir() if names else True
+        bases: list[Cwd] = [names[:-1], names] if names else [()]
+        if not any(
+            _word_covers(src, self.protected, self.root, base, root_too=False)
+            for src in sources
+            for base in bases
+        ):
+            return
+        if inside:
+            for src in sources:
+                base_name = PurePosixPath(src.text).name.casefold() if src.literal else ""
+                self.links.append((*names, base_name) if base_name else names)
+        else:
+            self.links.append(names)
+
+    def git_worktree_denial(self, sub: str, args: list[_Word], gcwd: Cwd) -> str | None:
+        """git commands that rewrite tracked files of the working tree: they can overwrite or
+        delete a protected file that git tracks (``.claude/settings.json``, a committed ``.env``).
+        """
+        texts = [w.text for w in args]
+        short = _short_letters(texts)
+        if gcwd is None:
+            return "git -C names a directory the guard cannot follow, so it cannot check the paths"
+        if sub == "checkout-index":
+            return "git checkout-index can overwrite tracked protected files"
+        if sub == "reset":
+            if any(_long_prefix(t, "hard") for t in texts):
+                return "git reset with the hard option overwrites tracked protected files"
+            return None
+        if sub == "stash":
+            first = next((t for t in texts if not t.startswith("-")), "")
+            if first in ("pop", "apply", "branch"):
+                return f"git stash {first} writes the stashed versions over tracked protected files"
+            return None
+        if sub == "apply":
+            if _sensitive_dir(gcwd, self.protected) and not any(
+                _long_prefix(t, x) for t in texts for x in ("check", "stat", "numstat", "summary")
+            ):
+                return CWD_WRITER_WHY
+            return None
+        if sub in ("checkout", "switch") and (
+            "f" in short
+            or any(_long_prefix(t, "force") or _long_prefix(t, "discard-changes") for t in texts)
+        ):
+            return f"git {sub} with force discards local changes, protected files among them"
+        if sub == "switch":
+            return None
+        worktree = "W" in short or any(_long_prefix(t, "worktree") for t in texts)
+        staged = "S" in short or any(_long_prefix(t, "staged") for t in texts)
+        if sub == "restore" and staged and not worktree:
+            return None  # only the index
+        if any(_long_prefix(t, "pathspec-from-file") for t in texts):
+            return f"git {sub} with a pathspec file lists paths the guard cannot read"
+        after = texts.index("--") + 1 if "--" in texts else 0
+        for w in args[after:]:
+            if w.text.startswith("-") and not after:
+                continue
+            if w.literal and self.pathspec_magic(w.text, gcwd):
+                return f"git {sub} with a pathspec the guard cannot rule out as a protected file"
+            if _word_covers(w, self.protected, self.root, gcwd, root_too=True):
+                return (
+                    f"git {sub} on the workspace root or a directory that holds a protected "
+                    "file overwrites tracked files"
+                )
+        return None
+
+    def pathspec_magic(self, text: str, gcwd: Cwd) -> bool:
+        """A pathspec git reads as a pattern, or with ``:`` magic, that may reach a protected
+        entry."""
+        if text.startswith(":"):
+            return True
+        if not any(c in text for c in "*?[\\"):
+            return False
+        names: list[str] = []
+        for entry in self.protected:
+            ps = PurePosixPath(entry).parts
+            names += ["/".join((*(gcwd or ()), *ps[: i + 1])) for i in range(len(ps))]
+            names += ["/".join(ps[: i + 1]) for i in range(len(ps))]
+        return any(fnmatch.fnmatchcase(n.casefold(), text.casefold()) for n in names)
+
     def git_denial(self, args: list[_Word]) -> str | None:
         texts = [w.text for w in args]
         k = 0
+        gcwd = self.cwd  # the directory git works in, after any -C
         while k < len(texts) and texts[k].startswith("-"):
             if texts[k] == "-c" or texts[k].startswith(
                 ("--config-env", "--exec-path", "--git-dir", "--work-tree")
             ):
                 return "a git option can set configuration or point inside the protected tree"
-            k += 2 if texts[k] == "-C" else 1
+            if texts[k] == "-C":
+                ok = k + 1 < len(args) and args[k + 1].literal
+                gcwd = self.chdir_from(gcwd, texts[k + 1]) if ok else None
+                k += 2
+            else:
+                k += 1
         sub = texts[k] if k < len(texts) else ""
         rest = texts[k + 1 :]
         short = _short_letters(rest)
+        if sub in GIT_WORKTREE_SUBS:
+            why = self.git_worktree_denial(sub, args[k + 1 :], gcwd)
+            if why:
+                return why
         if sub in GIT_REWRITE:
             return f"git {sub} can change configuration, hooks or the contents of .git"
         if sub == "stash" and (
@@ -1235,6 +1523,8 @@ def _shell_denial(
     subshells and ``sh -c`` bodies, and looks through wrappers such as ``env`` and ``sudo``."""
     if depth > MAX_DEPTH:
         return "shell commands are nested too deep to check"
+    if FUNCTION_RE.search(command) and CD_RE.search(command):
+        return FUNCTION_WHY
     items = _scan(command)
     if items is None or "`" in command or "$(" in command or "${" in command:
         return PROTECTED_WHY if _legacy_scan(command, protected) else None
