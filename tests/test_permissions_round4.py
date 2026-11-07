@@ -74,7 +74,9 @@ def _build(tmp: Path, state: str) -> Path:
     subprocess.run(["zip", "-q", "g.zip", "config"], cwd=root / "sub", check=True)
     shutil.move(str(root / "sub" / "g.zip"), root / "g.zip")
     gz = root / ".claude" / "settings.json.gz"
-    gz.write_bytes(subprocess.run(["gzip", "-c"], input=b"PWNED\n", capture_output=True, check=False).stdout)
+    gz.write_bytes(
+        subprocess.run(["gzip", "-c"], input=b"PWNED\n", capture_output=True, check=False).stdout
+    )
     os.link(root / ".env", root / "h")
     os.link(root / ".claude" / "settings.json", root / ".claude" / "hl")
     os.link(root / "sub" / "x", root / "sub" / "x2")
