@@ -317,7 +317,7 @@ def test_credential_wildcards_with_the_home_spelled_out(home: Path) -> None:
         "ls ~/.cache/*",
         "cat ~/.config/*.json",
         "ls ~/proj?cts",
-        "cat ~/.bash*",
+        "cat ~/.bashrc*",
         "cat ~/.cargo/b*",
     ],
 )

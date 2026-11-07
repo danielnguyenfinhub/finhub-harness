@@ -17,16 +17,27 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import IO, Final, Literal
+from typing import IO, Any, Final, Literal
 
 SENSITIVE_ENV: Final = re.compile(
-    r"KEY|PASSWORD|SECRET|TOKEN|AUTH|CREDENTIAL|_(PAT|DSN|URI)$"
-    r"|^(SSH_AUTH_SOCK|DATABASE_URL|GOOGLE_APPLICATION_CREDENTIALS|KUBECONFIG)$",
+    r"KEY|PASSWORD|PASSWD|PASSPHRASE|PGPASS|SECRET|TOKEN|AUTH|CREDENTIAL|COOKIE|BEARER|SESSION"
+    r"|WEBHOOK|DB_CONN|CONNECTION_?STR|(^|_)(PASS|JWT)($|_)|_(PAT|DSN|URI)$"
+    r"|^(SSH_AUTH_SOCK|DATABASE_URL|REDIS_URL|GOOGLE_APPLICATION_CREDENTIALS|KUBECONFIG)$",
     re.IGNORECASE,
 )
-# git takes identity and config-by-env names; they are not secrets, so allow before deny
-ALLOWED_ENV: Final = re.compile(
-    r"GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|GIT_CONFIG_(COUNT|(KEY|VALUE)_[0-9]+)"
+# a value that carries a password or token, whatever the variable is called
+SENSITIVE_VALUE: Final = re.compile(
+    r"://[^/\s@:]*:[^/\s@]+@|\bBearer\s+\S{8,}|\bgh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}"
+    r"|\bxox[abprs]-[\w-]{10,}|\beyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]{5,}|\bauthorization\s*:",
+    re.IGNORECASE,
+)
+# git takes identity by env name; it is not a secret, so allow before deny
+ALLOWED_ENV: Final = re.compile(r"GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)")
+# config-by-env pairs are kept only when the key is not an auth setting and the value is clean
+GIT_PAIR: Final = re.compile(r"GIT_CONFIG_(COUNT|KEY_[0-9]{1,4}|VALUE_[0-9]{1,4})")
+GIT_AUTH_KEY: Final = re.compile(
+    r"extraheader|^credential|insteadof|password|passwd|token|secret|askpass|sshcommand|proxy",
+    re.IGNORECASE,
 )
 DEFAULT_MAX_OUTPUT_BYTES: Final = 64_000
 QUEUE_MAX: Final = 256
@@ -35,13 +46,35 @@ JOIN_TIMEOUT_S: Final = 5.0
 ChunkKind = Literal["stdout", "stderr", "exit", "timeout"]
 
 
+def _git_config_pairs(environ: Mapping[str, str]) -> dict[str, str]:
+    """Benign GIT_CONFIG_KEY_n/VALUE_n pairs, renumbered from 0 with a matching COUNT."""
+    keep: list[tuple[str, str]] = []
+    for name in sorted(environ, key=lambda n: (len(n), n)):
+        if name.startswith("GIT_CONFIG_KEY_") and GIT_PAIR.fullmatch(name):
+            value = environ.get("GIT_CONFIG_VALUE_" + name.rsplit("_", 1)[1])
+            key = environ[name]
+            if (
+                value is not None
+                and not GIT_AUTH_KEY.search(key)
+                and not SENSITIVE_VALUE.search(value)
+            ):
+                keep.append((key, value))
+    out = {"GIT_CONFIG_COUNT": str(len(keep))} if keep else {}
+    for i, (key, value) in enumerate(keep):
+        out[f"GIT_CONFIG_KEY_{i}"] = key
+        out[f"GIT_CONFIG_VALUE_{i}"] = value
+    return out
+
+
 def scrubbed_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
-    """os.environ minus secret-looking names; explicit ``extra`` wins."""
+    """os.environ minus secret-looking names and values; explicit ``extra`` wins."""
     env = {
         k: v
         for k, v in os.environ.items()
-        if ALLOWED_ENV.fullmatch(k) or not SENSITIVE_ENV.search(k)
+        if ALLOWED_ENV.fullmatch(k)
+        or not (GIT_PAIR.fullmatch(k) or SENSITIVE_ENV.search(k) or SENSITIVE_VALUE.search(v))
     }
+    env.update(_git_config_pairs(os.environ))
     if extra:
         env.update(extra)
     return env
@@ -85,7 +118,7 @@ class ExecResult:
     timed_out: bool
 
 
-def _kill_group(proc: subprocess.Popen[bytes]) -> None:
+def _kill_group(proc: subprocess.Popen[Any]) -> None:
     """Kill the child's process group; fall back to the direct child. Idempotent."""
     try:
         if hasattr(os, "killpg"):

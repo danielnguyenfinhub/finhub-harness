@@ -60,7 +60,7 @@ def test_sender_is_exempt(tmp_path: Path) -> None:
     build(tmp_path, True, {"drafter": "tools: Read\n"})
     (tmp_path / "agents" / "sender.md").write_text(
         '---\nname: sender\ndescription: "D. Use when X."\ntools: mcp__crm__send\nmodel: sonnet # r\n---\n'
-        "Makes only the calls on the approved list.\n"
+        "Sending worker: makes only the calls on the approved list.\n"
     )
     _, out = lint(tmp_path)
     assert RULE not in out
@@ -130,7 +130,10 @@ def test_approved_list_inside_code_fence_does_not_exempt(tmp_path: Path) -> None
 
 def test_positive_approved_list_in_body_still_exempts(tmp_path: Path) -> None:
     assert not warned(
-        tmp_path, "w", "tools: mcp__crm__send\n", "Works only from the approved list."
+        tmp_path,
+        "w",
+        "tools: mcp__crm__send\n",
+        "Sending worker: works only from the approved list.",
     )
 
 

@@ -66,7 +66,7 @@ python -m venv .venv
 .venv/bin/python -m pytest -q
 ```
 
-Run the CLI with `master-finhub` (entry point `master_finhub.cli:main`). The shipped CLI and server register only `EchoTool`, so the command guard, workspace fence, Docker engine, MCP client and permission modes are libraries that no shipped entrypoint wires yet.
+Run the CLI with `master-finhub` (entry point `master_finhub.cli:main`). The shipped CLI and server register only `EchoTool`. The command guard, workspace fence and checkpoints are wired (`cli.py`, `server/app.py` and the orchestration modes use them); the Docker engine, MCP client and permission modes are libraries that no shipped entrypoint wires yet. A caller of the MCP client must persist `approved_digests(tools)` and pass it as `previous` on the next listing, not the raw latest listing, or a changed tool stops being quarantined.
 
 ## Reference repos and licences
 

@@ -145,14 +145,9 @@ def _upsert(args: argparse.Namespace) -> int:
     missing = [k for k in key if k not in row]
     if missing:
         raise Refused(f"row is missing key columns {missing}")
-    if args.worker is not None:  # a worker whose claim was revoked or never made cannot write
-        _claim_column(con, args.table)
-        where, kv = _key_where(key, json.dumps({k: row[k] for k in key}))
-        held = con.execute(
-            f'SELECT "{CLAIM_COL}" FROM {_ident(args.table, "table")} WHERE {where}', kv
-        ).fetchone()
-        if held is None or held[0] != args.worker:
-            raise Refused(f"claim on this unit is not held by {args.worker!r}; claim it first")
+    row = {c: (_text(v) if c in key else v) for c, v in row.items()}  # '1' and 1 are one unit
+    if args.worker is not None:
+        return _upsert_held(con, args, key, row)
     names = list(row)
     vals = [json.dumps(v) if isinstance(v, (list, dict)) else v for v in row.values()]
     marks = ", ".join("?" * len(names))
@@ -183,7 +178,40 @@ def _upsert(args: argparse.Namespace) -> int:
     return 0
 
 
+def _upsert_held(
+    con: sqlite3.Connection, args: argparse.Namespace, key: list[str], row: dict[str, object]
+) -> int:
+    """A worker writes only to a unit it holds. The holder test sits in the UPDATE's own WHERE, so a
+    release or a re-claim cannot slip in between a read of the holder and the write (U11)."""
+    q = _ident(args.table, "table")
+    _claim_column(con, args.table)
+    _dead_column(con, args.table, add=True)
+    where, kv = _key_where(key, json.dumps({k: row[k] for k in key}))
+    sets =[c for c in row if c not in key]
+    body =", ".join(f'{_ident(c, "column")} = ?' for c in sets) or f'"{CLAIM_COL}" = "{CLAIM_COL}"'
+    vals = [json.dumps(v) if isinstance(v, (list, dict)) else v for v in (row[c] for c in sets)]
+    with con:
+        changed = con.execute(
+            f'UPDATE {q} SET {body} WHERE {where} AND "{CLAIM_COL}" = ? AND "{DEAD_COL}" IS NULL',
+            [*vals, *kv, args.worker],
+        ).rowcount
+        if not changed:
+            gone = con.execute(f'SELECT "{DEAD_COL}" FROM {q} WHERE {where}', kv).fetchone()
+            if gone is not None and gone[0] is not None:
+                print("UPSERT: dead-lettered")
+                return 4
+            raise Refused(f"claim on this unit is not held by {args.worker!r}; claim it first")
+    print("OK " + json.dumps({k: row[k] for k in key}, sort_keys=True))
+    return 0
+
+
 CLAIM_COL = "_claimed_by"  # script-owned; added by the first claim, never by init
+
+
+def _text(v: object) -> str:
+    """Key values are kept as text: SQLite columns made by init have no type, so 1 and '1' would
+    otherwise be two units. A string stays as it is; any other JSON value is written as JSON."""
+    return v if isinstance(v, str) else json.dumps(v)
 
 
 def _add_column(con: sqlite3.Connection, quoted_table: str, column: str) -> None:
@@ -209,7 +237,7 @@ def _key_where(key: list[str], raw: str) -> tuple[str, list[object]]:
         raise Refused(f"--key is not JSON: {exc}") from exc
     if not isinstance(want, dict) or sorted(want) != sorted(key):
         raise Refused(f"--key must be a JSON object with exactly the key columns {sorted(key)}")
-    return " AND ".join(f'{_ident(k, "column")} = ?' for k in key), [want[k] for k in key]
+    return " AND ".join(f'{_ident(k, "column")} = ?' for k in key), [_text(want[k]) for k in key]
 
 
 def _claim(args: argparse.Namespace) -> int:
@@ -339,7 +367,8 @@ def _status(args: argparse.Namespace) -> int:
     print(f"TABLE: {args.table}\nTOTAL: {total}\nDONE: {total - left - dead}\nPENDING: {left}")
     if dead:
         print(f"FAILED: {dead}")
-    print("STATE: " + ("converged" if total and not left else "open"))
+    state = "open" if left or not total else "stopped-with-failures" if dead else "converged"
+    print("STATE: " + state)  # converged means every unit is done, none given up on
     return 0
 
 

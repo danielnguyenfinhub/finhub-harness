@@ -30,9 +30,10 @@ def test_step3_qa_line_agrees_with_the_scoping_rule() -> None:
     assert "all tools except `mcp__` connector tools unless the agent is the sender" in STEP
 
 
-def test_readme_says_the_guards_are_not_wired() -> None:
+def test_readme_says_which_guards_are_wired() -> None:
     assert "register only `EchoTool`" in README
-    assert "libraries that no shipped entrypoint wires yet" in README
+    assert "The command guard, workspace fence and checkpoints are wired" in README
+    assert "Docker engine, MCP client and permission modes are libraries that no shipped" in README
 
 
 def test_unit_tracker_doc_says_a_dead_unit_is_not_claimable_or_writable() -> None:

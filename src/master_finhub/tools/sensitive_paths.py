@@ -64,6 +64,22 @@ SENSITIVE_PATH_PATTERNS: Final[tuple[str, ...]] = (
     "*/.env",
     "*/.env.*",
     "/proc/*/environ",
+    # re-audit 2 (RA2-13): more credential stores and shell histories
+    "*/.bash_history",
+    "*/.zsh_history",
+    "*/.pgpass",
+    "*/.vault-token",
+    "*/.claude/.credentials.json",
+    "*/.config/rclone/rclone.conf",
+    "*/.terraform.d/credentials.tfrc.json",
+    "*/.gem/credentials",
+    "*/.composer/auth.json",
+    "*/.config/git/credentials",
+    "*/.oci/*",
+    "*/.oci",
+    "/etc/shadow*",
+    "/etc/gshadow*",
+    "/etc/ssh/ssh_host_*_key",
 )
 # audit lead 4: credential locations as path components, for words with shell wildcards
 _CRED_COMPONENTS: Final[tuple[tuple[str, ...], ...]] = (
@@ -88,6 +104,17 @@ _CRED_COMPONENTS: Final[tuple[tuple[str, ...], ...]] = (
     (".config", "gh", "hosts.yml"),
     (".cargo", "credentials"),
     (".cargo", "credentials.toml"),
+    (".bash_history",),
+    (".zsh_history",),
+    (".pgpass",),
+    (".vault-token",),
+    (".oci",),
+    (".claude", ".credentials.json"),
+    (".config", "rclone", "rclone.conf"),
+    (".terraform.d", "credentials.tfrc.json"),
+    (".gem", "credentials"),
+    (".composer", "auth.json"),
+    (".config", "git", "credentials"),
 )
 _GLOB_RE: Final = re.compile(r"[*?\[]")
 _GLOB_PART_RE: Final = re.compile(r"\[[^\]]*\]|[*?]")
@@ -255,12 +282,22 @@ def _posix(part: str) -> str:
     return part
 
 
+def _fn(name: str, part: str) -> bool:
+    """fnmatch of `name` against a shell pattern. Bash reads `[^x]` as `[!x]` and fnmatch reads
+    the `^` as a member (RA2-02), so a pattern with `[^` is tried both ways and matches if either
+    does."""
+    part = _posix(part)
+    if fnmatch.fnmatchcase(name, part):
+        return True
+    return "[^" in part and fnmatch.fnmatchcase(name, part.replace("[^", "[!"))
+
+
 def _shell_match(part: str, name: str) -> bool:
     """Could shell pattern `part` expand to `name`? A wildcard never matches a leading dot."""
-    part = _posix(part.casefold())
+    part = part.casefold()
     if name.startswith(".") and not part.startswith("."):
         return False
-    return fnmatch.fnmatchcase(name, part)
+    return _fn(name.casefold(), part)
 
 
 def _part_matches(part: str, name: str) -> bool:
@@ -278,7 +315,7 @@ def _part_matches(part: str, name: str) -> bool:
     exempt = "[" in rest if dot else _SINGLE_CLASS_RE.search(rest) is not None
     if len(lit) < (1 if dot else 2) and not exempt:
         return False
-    return fnmatch.fnmatchcase(name, _posix(part))
+    return _fn(name, part)
 
 
 def glob_hit(path: str) -> bool:
@@ -381,17 +418,27 @@ def _multi_link(path: str) -> bool:
     return stat.S_ISREG(st.st_mode) and st.st_nlink > 1
 
 
+_CRED_NAMES: Final = frozenset(n for e in _CRED_COMPONENTS for n in e)
+
+
+def _could_name_credential(part: str) -> bool:
+    """Could the wildcard name `part` expand to the name of a credential file or directory?"""
+    return any(_shell_match(part, n) for n in _CRED_NAMES)
+
+
 def glob_rule(raw: str, scan: Scan) -> str | None:
     """Expand a word with wildcards against the real directories (component by component, no
-    recursion past the word's own components, GLOB_ENTRIES_PER_WORD entries per word) and walk
-    every match that is a link, sits behind a link or has other links. 'path-budget' when the
-    call's entry budget runs out. Best effort: a directory with more entries is read in part."""
+    recursion past the word's own components, GLOB_ENTRIES_PER_WORD entries per word) and judge
+    every match by name; a match that is a link, sits behind a link or has other links is walked
+    too. 'sensitive-path' when any match names a credential, and 'path-budget' when the expansion
+    cannot be completed: the call's entry budget or the word's entry limit runs out, or more than
+    GLOB_MATCHES directories would have to be opened (RA2-01). Best effort otherwise."""
     try:
         s = os.path.expandvars(os.path.expanduser(raw))
         parts = [c for c in s.split("/") if c not in ("", ".")]
         bases: list[tuple[str, bool]] = [("/" if s.startswith("/") else os.getcwd(), False)]
         word_left = GLOB_ENTRIES_PER_WORD
-        for part in parts:
+        for n, part in enumerate(parts):
             nxt: list[tuple[str, bool]] = []
             for base, walk in bases:
                 if not _GLOB_RE.search(part):
@@ -408,15 +455,26 @@ def glob_rule(raw: str, scan: Scan) -> str | None:
                         scan.entries_left -= 1
                         if scan.entries_left < 0:
                             return "path-budget"
-                        if word_left < 0:
+                        if word_left < 0:  # the listing is cut: refuse only a pattern that could
+                            if _could_name_credential(part):  # name a credential in the rest
+                                return "path-budget"
                             break
                         if _shell_match(part, e.name):
                             nxt.append((e.path, walk or e.is_symlink()))
-            bases = nxt[:GLOB_MATCHES]
+            for path, _ in nxt:
+                if _hit(path):  # a plain match is judged by name, whatever the pattern looks like
+                    return "sensitive-path"
+            if (
+                len(nxt) > GLOB_MATCHES
+                and n + 1 < len(parts)
+                and any(_could_name_credential(q) for q in parts[n + 1 :])
+            ):
+                return "path-budget"  # too many directories to open for the next component
+            bases = nxt
             if not bases:
                 return None
         for path, walk in bases:
-            # a plain match is judged by name (glob_hit); only an alias needs the walk
+            # an alias (a link, a path behind one, a hard link) needs the walk
             if (walk or _multi_link(path)) and sensitive_rule(path, max_chars=len(path) + 1):
                 return "sensitive-path"
         return None
