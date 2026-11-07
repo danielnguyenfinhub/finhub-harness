@@ -544,7 +544,6 @@ GIT_ALLOWED = [
     "init",
     "stash",
     "stash list",
-    "stash pop",
     "stash push -m msg",
     "stash push -m msg --keep-index",
     "stash --keep-index",
