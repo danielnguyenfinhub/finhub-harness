@@ -35,6 +35,15 @@ InFlightPolicy = Literal["stop", "rerun", "report_unknown"]
 FailurePolicy = Literal["ignore", "warn", "raise"]
 
 
+def _takes_tools_tokens(fn: Any) -> bool:
+    """True when ``fn`` accepts a ``tools_tokens`` keyword, by name or through ``**kwargs``."""
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(p.name == "tools_tokens" or p.kind is inspect.Parameter.VAR_KEYWORD for p in params)
+
+
 class AgentLoopError(RuntimeError):
     """Raised when the loop cannot finish (e.g. max_steps exceeded)."""
 
@@ -217,9 +226,7 @@ class AgentLoop:
         self._tools = {t.spec.name: t for t in tools}
         self._specs = [t.spec for t in tools]
         self._max_steps = max_steps
-        self._fit_takes_tools = (
-            context is not None and "tools_tokens" in inspect.signature(context.fit).parameters
-        )
+        self._fit_takes_tools = context is not None and _takes_tools_tokens(context.fit)
         self._tools_tokens = sum(
             len(json.dumps([sp.name, sp.description, sp.parameters], default=str)) // 4 + 1
             for sp in self._specs
@@ -295,7 +302,11 @@ class AgentLoop:
                         f"{retries} compaction(s). Lower context_window_tokens or shorten the task."
                     ) from exc
                 retries += 1
-                messages = compact(messages)
+                messages = (
+                    compact(messages, tools_tokens=self._tools_tokens)
+                    if _takes_tools_tokens(compact)
+                    else compact(messages)
+                )
 
     def _save(self, step: int, messages: list[Message]) -> None:
         if self._checkpoint is not None:

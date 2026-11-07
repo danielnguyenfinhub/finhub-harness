@@ -46,9 +46,11 @@ def handle_list(req_id: Any, params: dict[str, Any]) -> None:
         sys.stdout.flush()
         time.sleep(30)
     elif "--endless-pages" in ARGS:
-        reply(req_id, {"tools": TOOLS[:1], "nextCursor": str(params.get("cursor", "0")) + "x"})
+        cur = str(params.get("cursor", "0"))  # a distinct tool per page: names must be unique
+        reply(req_id, {"tools": [{**TOOLS[0], "name": f"t{len(cur)}"}], "nextCursor": cur + "x"})
     elif "--repeat-cursor" in ARGS:
-        reply(req_id, {"tools": TOOLS[:1], "nextCursor": "again"})
+        name = "echo" if not params.get("cursor") else "echo2"
+        reply(req_id, {"tools": [{**TOOLS[0], "name": name}], "nextCursor": "again"})
     elif "--bad-cursor" in ARGS:
         reply(req_id, {"tools": TOOLS[:1], "nextCursor": 7})
     elif "--rich" in ARGS:

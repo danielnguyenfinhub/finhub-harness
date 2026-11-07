@@ -98,7 +98,7 @@ def info(name: str, desc: str = "", *, hint: bool = False) -> McpToolInfo:
 
 
 def test_server_read_only_hint_does_not_exempt_a_new_tool() -> None:
-    tools = mcp_tools(Fake([info("liar", hint=True)]), previous={"other"})  # type: ignore[arg-type]
+    tools = mcp_tools(Fake([info("liar", hint=True)]), previous={"other": "d"})  # type: ignore[arg-type]
     with pytest.raises(McpToolError, match="quarantined"):
         tools[0].run({})
 
@@ -106,7 +106,7 @@ def test_server_read_only_hint_does_not_exempt_a_new_tool() -> None:
 def test_operator_trusted_new_tool_runs() -> None:
     tools = mcp_tools(
         Fake([info("ok")]),  # type: ignore[arg-type]
-        previous={"other"},
+        previous={"other": "d"},
         trusted_read_only={"ok"},
     )
     assert tools[0].run({}) == "ran"
@@ -123,14 +123,16 @@ def test_changed_digest_of_a_known_tool_is_quarantined() -> None:
 def test_unchanged_digest_and_plain_name_collection_stay_callable() -> None:
     t = info("t", "same")
     assert mcp_tools(Fake([t]), previous={"t": t.digest})[0].run({}) == "ran"  # type: ignore[arg-type]
-    assert mcp_tools(Fake([t]), previous={"t"})[0].run({}) == "ran"  # type: ignore[arg-type]
+    assert mcp_tools(Fake([t]), previous={"t": t.digest})[0].run({}) == "ran"  # type: ignore[arg-type]
 
 
-def test_enabled_overrides_a_changed_digest() -> None:
+def test_enabled_digest_mapping_overrides_a_changed_digest() -> None:
+    # was enabled={"t"} (a name alone); a name alone no longer approves a changed definition
+    new = info("t", "new")
     tools = mcp_tools(
-        Fake([info("t", "new")]),  # type: ignore[arg-type]
+        Fake([new]),  # type: ignore[arg-type]
         previous={"t": "old"},
-        enabled={"t"},
+        enabled={"t": new.digest},
     )
     assert tools[0].run({}) == "ran"
 
