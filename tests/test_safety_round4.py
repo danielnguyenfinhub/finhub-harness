@@ -344,6 +344,102 @@ def test_cat_of_home_star_does_not_read_dotfiles_in_a_real_shell(home: Path) -> 
     assert not denied("cat ~/*")
 
 
+# --- (5) recursive readers that were not listed ---------------------------------------------------
+
+WHOLE = ["~", "~/", "$HOME", "/", "/..", "~/..", "/home", "/tmp"]
+READERS = [
+    "du {r}", "du -a {r}", "du -sh {r}", "du -d 1 {r}", "tree {r}", "tree -a {r}",
+    "find {r} -name '.*'", "find {r} -type f", "find -L {r} -name '*'", "find {r} -maxdepth 2",
+    "find {r} -print", "find {r} -name x -o -type f", "ls -R {r}", "ls -laR {r}", "ls -aR {r}", "ls --recursive {r}",
+    "fd x {r}", "fd -H -I pem {r}", "fdfind x {r}", "diff -r {r} /tmp/x", "diff -r /tmp/x {r}",
+    "rg -uuu foo {r}", "rg --files {r}", "grep -r foo {r}", "tar cf x.tar {r}", "tar rf x.tar {r}",
+    "tar -rf x.tar {r}", "tar uf x.tar {r}", "tar --append -f x.tar {r}", "tar --update -f x {r}",
+    "cp -r {r} /tmp/x", "git -C {r} archive HEAD", "git -C {r} archive -o x.tar HEAD",
+    "eza -T {r}", "exa --tree {r}", "lsd -R {r}", "ncdu {r}", "sudo du -a {r}", "nice find {r} -type d", "cd /tmp && du -a {r}",
+]  # fmt: skip
+
+
+def _whole_in_fixture(r: str, home: Path) -> bool:
+    return r in ("~", "~/", "$HOME", "/", "/..", "~/..") or (
+        r == "/tmp" and str(home).startswith("/tmp")
+    )
+
+
+@pytest.mark.parametrize("tpl", READERS)
+@pytest.mark.parametrize("root", WHOLE)
+def test_a_recursive_reader_of_the_whole_home_or_root_is_refused(
+    tpl: str, root: str, home: Path
+) -> None:
+    cmd = tpl.replace("{r}", root)
+    if root in ("/home", "/tmp") and not str(home).startswith(root + "/"):
+        assert not denied(cmd) or tpl.startswith(("rg", "grep", "tar c", "cp")), cmd
+        return
+    assert denied(cmd), cmd
+
+
+@pytest.mark.parametrize("tpl", READERS)
+def test_the_same_readers_on_a_project_directory_are_allowed(tpl: str) -> None:
+    assert not denied(tpl.replace("{r}", "./a.txt")), tpl
+    assert not denied(tpl.replace("{r}", "src")), tpl
+    assert not denied(tpl.replace("{r}", "~/projects")), tpl
+
+
+def test_a_listing_of_a_home_without_credentials_is_allowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The new listing rules ask whether a credential path exists below the root."""
+    bare = tmp_path / "bare"
+    (bare / "src").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(bare))
+    for cmd in ("du -a ~", "find ~ -type f", "ls -R ~", "tree ~", "fd x ~"):
+        assert not denied(cmd), cmd
+    assert denied("du -a /")  # `/` always holds /etc/shadow
+    assert denied("grep -r foo ~")  # the readers of the third round are refused regardless
+    (bare / ".netrc").write_text("machine x")
+    assert denied("du -a ~")
+
+
+def test_ls_without_a_recursive_flag_is_not_a_tree_read() -> None:
+    assert not denied("ls -ltr ~")  # r is reverse order here
+    assert not denied("ls -la ~")
+    assert not denied("du -s a.txt")
+    assert not denied("find . -name x")
+    # a name filter that cannot match a credential name lists none (the 2nd re-audit pinned `/`)
+    assert not denied("find / -name '*.log'")
+    assert not denied("find ~ -name '*.py'")
+    assert not denied("find ~ -name x -type f")
+    assert denied("find ~ -name '*.py' -o -type f")
+    assert denied("find ~ -name '*'")
+    assert not denied("tar tf x.tar")
+    assert not denied("tar xf x.tar -C /tmp")
+    assert not denied("git archive HEAD")
+
+
+def test_a_root_the_guard_stopped_tracking_is_refused() -> None:
+    many = "; ".join(f"V{i}=x" for i in range(70))
+    assert denied(f"{many}; du -a $V1")
+    assert denied(f"{many}; ls -R $WHERE")
+
+
+def test_find_after_a_cd_into_home_is_refused() -> None:
+    assert denied("cd ~ && find . -type f")
+    assert denied("cd ~ && du -a")
+    assert denied("cd / && find . -type f")
+    assert denied("cd ~; ls -R")
+    assert denied("cd ~ && du -d 1")  # `1` is the option's value; the operand is the directory
+    assert denied("cd ~ && fd pem")
+    assert denied("cd ~ && tree")
+    assert not denied("cd ~/projects && find . -type f")
+
+
+def test_du_and_find_in_a_real_shell_list_the_credential_paths(home: Path) -> None:
+    """Why these are refused: the listing names the credential files."""
+    out = shell_prints("bash", "find ~ -name 'id_*'", home)
+    assert out is not None and out.endswith("id_rsa")
+    out = shell_prints("bash", "du -a ~", home)
+    assert out is not None and ".ssh/id_rsa" in out
+
+
 # --- known residuals that stay documented (R1-R7 of the 2026-10-21 row, unchanged) --------------
 
 
@@ -409,6 +505,18 @@ def test_new_wrapper_names_do_not_make_peeling_superlinear() -> None:
         t0 = time.process_time()
         check_rule(tpl[:10_000])
         assert time.process_time() - t0 < 0.5, tpl[:20]
+
+
+def test_listing_roots_are_read_once_and_stay_fast() -> None:
+    for text in (
+        "find " * 1999,
+        "du " + " ".join(f"./d{i}" for i in range(1400)),
+        "ls -R " + " ".join(f"./d{i}" for i in range(1400)),
+        "find " + " ".join(f"./d{i}" for i in range(1400)),
+    ):
+        t0 = time.process_time()
+        check_rule(text[:10_000])
+        assert time.process_time() - t0 < 0.5, text[:20]
 
 
 def test_module_exposes_the_new_wrappers() -> None:

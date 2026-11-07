@@ -899,6 +899,74 @@ def _braces(word: str) -> list[str]:
     return forms
 
 
+LISTERS_ALWAYS: Final = frozenset({"du", "tree", "ncdu", "dust"})
+LISTERS_FLAGGED: Final = frozenset({"ls", "exa", "eza", "lsd"})
+FINDERS: Final = frozenset({"fd", "fdfind"})
+FIND_LEADING: Final = frozenset({"-H", "-L", "-P"})
+
+
+def _cred_below(root: str) -> bool:
+    """Round 4: does a credential path exist below this whole-tree root? Under `/` one always
+    does (/etc/shadow); under the home directory or a parent of it, only if HOME holds one."""
+    return root == "/" or _sp.home_has_credential(_sp.current_scan() or _sp.Scan())
+
+
+def _recursive_listing(name: str, args: list[str]) -> bool:
+    letters = "R" if name == "ls" else "RT"
+    return any(
+        a in ("--recursive", "--tree")
+        or (a.startswith("-") and not a.startswith("--") and any(c in a[1:] for c in letters))
+        for a in args
+    )
+
+
+def _listing_roots(name: str, args: list[str], positional: list[str]) -> list[str]:
+    """The directories a listing, search or archive command walks (round 4, item 5)."""
+    if name == "find":
+        rest = list(itertools.dropwhile(lambda a: a in FIND_LEADING, args))
+        return list(itertools.takewhile(lambda a: not a.startswith(("-", "(", "!")), rest)) or ["."]
+    if name == "git":
+        if "archive" not in args:
+            return []
+        dirs = [args[i + 1] for i, a in enumerate(args) if a == "-C" and i + 1 < len(args)]
+        return dirs or ["."]
+    if name == "diff":
+        return positional if recursive_flag(name, args) else []
+    if name in LISTERS_FLAGGED and not _recursive_listing(name, args):
+        return []
+    if name in LISTERS_ALWAYS or name in LISTERS_FLAGGED or name in FINDERS:
+        # `du -d 1` and `fd PATTERN` keep a non-path word among the operands: judge "." too
+        if not positional or all(p.isdigit() for p in positional) or name in FINDERS:
+            return [*positional, "."]
+        return positional
+    return []
+
+
+def _find_filtered(args: list[str]) -> bool:
+    """A `find` whose `-name`/`-iname` filter cannot match a credential name lists none (no
+    `-o`, `!` or group that could widen it back)."""
+    if {"-o", "-or", "!", "-not", "(", "\\("} & set(args):
+        return False
+    pats = [
+        args[i + 1] for i, a in enumerate(args) if a in ("-name", "-iname") and i + 1 < len(args)
+    ]
+    return any(not _sp.name_could_be_credential(p) for p in pats)
+
+
+def _listing_read(name: str, args: list[str], positional: list[str], state: _State) -> bool:
+    """Round 4 (item 5): a recursive lister, finder or archiver (`du -a ~`, `find ~ -name x`,
+    `ls -R ~`, `tree`, `fd`, `diff -r`, `git archive`) rooted at `/`, the home directory or a
+    parent of it, where a credential path exists below. A listing names the credential files
+    even when it does not read them."""
+    if name == "find" and _find_filtered(args):
+        return False
+    for o in dict.fromkeys(_listing_roots(name, args, positional)):  # a repeated word is read once
+        root = _whole_root(o, state)
+        if root is not None and _cred_below(root):
+            return True
+    return False
+
+
 def _exists(path: str) -> bool:
     try:
         os.lstat(path)
@@ -1199,8 +1267,9 @@ TREE_ALWAYS: Final = frozenset({"rg", "ag", "ack", "bsdtar", "7z", "7za"})
 TREE_COPIERS: Final = frozenset({"cp", "rsync", "scp", "zip"})
 
 
-def _whole_tree(o: str, state: _State) -> bool:
-    """RA2-08: the word names `/`, the home directory or a parent of it (by any reading)."""
+def _whole_root(o: str, state: _State) -> str | None:
+    """RA2-08: the whole tree the word names (`/`, the home directory or a parent of it, by any
+    reading), or None. A word that cannot be resolved counts as `/`."""
     home = posixpath.normpath(_home())
     whole = {"/"}
     for h in {home, os.path.realpath(home)}:
@@ -1211,7 +1280,7 @@ def _whole_tree(o: str, state: _State) -> bool:
     try:
         forms = _target_forms(o, state)
     except _TooManyForms:
-        return True
+        return "/"
     for f in forms:
         e = os.path.expanduser(os.path.expandvars(f))
         if not e:
@@ -1224,10 +1293,14 @@ def _whole_tree(o: str, state: _State) -> bool:
         try:
             r = _sp.realpath_bounded(e, _sp.current_scan() or _sp.Scan())
         except Exception:  # noqa: BLE001 - fail closed
-            return True
+            return "/"
         if e in whole or r in whole:
-            return True
-    return False
+            return e if e in whole else r
+    return None
+
+
+def _whole_tree(o: str, state: _State) -> bool:
+    return _whole_root(o, state) is not None
 
 
 def _tree_read(name: str, args: list[str], positional: list[str], state: _State) -> bool:
@@ -1238,16 +1311,16 @@ def _tree_read(name: str, args: list[str], positional: list[str], state: _State)
             recursive_flag(name, args) or "--dereference-recursive" in args
         ):
             return False
-        explicit = any(a in ("-e", "-f", "--regexp", "--file") for a in args)
+        explicit = any(a in ("-e", "-f", "--regexp", "--file", "--files") for a in args)
         paths = positional if explicit else positional[1:]
         if not paths:
             paths = ["."]  # grep -r and rg search the current directory
     elif name in ("tar", "bsdtar"):
         first = args[0] if args else ""
         create = (
-            "--create" in args
-            or any("c" in c for c in short)
-            or (bool(first) and not first.startswith("-") and "c" in first)
+            bool({"--create", "--append", "--update"} & set(args))
+            or any(set("cru") & set(c) for c in short)
+            or (bool(first) and not first.startswith("-") and bool(set("cru") & set(first)))
         )
         if name == "tar" and not create:
             return False
@@ -1301,7 +1374,9 @@ def _core_rule(words: list[str], core: list[str], state: _State) -> str | None:
     find_start_bad = not args or args[0].startswith("-") or _danger(args[0], state, True)
     if name == "find" and deletes and find_start_bad:
         return "find-delete-root"
-    if state.sensitive and _tree_read(name, args, positional, state):
+    if state.sensitive and (
+        _tree_read(name, args, positional, state) or _listing_read(name, args, positional, state)
+    ):
         return "sensitive-path"
     if name.startswith("mkfs") or name in FORMATTERS:
         return "format-disk"
