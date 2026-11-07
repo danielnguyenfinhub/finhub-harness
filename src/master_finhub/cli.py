@@ -20,23 +20,17 @@ from master_finhub.runtime.loop import (
     AgentLoopError,
     LoopSnapshot,
     ResumeBlocked,
-    ToolCall,
     ToolGuard,
 )
 from master_finhub.runtime.router import Router, RouterConfigError
 from master_finhub.sandbox.workspace import WORKSPACE_ENV_VAR, Workspace
+from master_finhub.tools import guard_factory
 from master_finhub.tools.builtins.echo import EchoTool
-from master_finhub.tools.permissions import (
-    DEFAULT_MODE,
-    Mode,
-    ToolClass,
-    effective_guard,
-)
-from master_finhub.tools.safety import guard_tool_call
+from master_finhub.tools.guard_factory import DEFAULT_TOOL_CLASSES, MODES
+from master_finhub.tools.permissions import DEFAULT_MODE, Mode, ToolClass
 
 SCRIPTED_PROFILE = "scripted"
-MODES: tuple[Mode, ...] = ("read-only", "workspace-write", "full-access")
-TOOL_CLASSES: dict[str, ToolClass] = {"echo": "read"}  # one entry per tool the CLI registers
+TOOL_CLASSES: dict[str, ToolClass] = DEFAULT_TOOL_CLASSES  # one entry per tool the CLI registers
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -92,30 +86,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def build_guard(mode: Mode) -> ToolGuard:
-    """The base command guard first, then the mode guard; both judge every tool call.
-
-    Without a workspace folder the mode guard cannot judge a write, so only tools classed as
-    read pass (and full-access keeps just the base guard).
-    """
-    try:
-        workspace = Workspace()
-    except (FileNotFoundError, NotADirectoryError):
-        workspace = None
-    if workspace is not None:
-        return effective_guard(mode, workspace, tool_classes=TOOL_CLASSES)
-    if mode == "full-access":
-        return guard_tool_call
-
-    def guard(call: ToolCall) -> str | None:
-        denial = guard_tool_call(call)
-        if denial is not None or TOOL_CLASSES.get(call.name) == "read":
-            return denial
-        return (
-            f"{mode} mode: {call.name} needs a workspace folder. "
-            f"Set {WORKSPACE_ENV_VAR} to an existing folder."
-        )
-
-    return guard
+    """The base command guard first, then the mode guard; both judge every tool call."""
+    return guard_factory.build_guard(mode, TOOL_CLASSES)
 
 
 def _build_llm(profile: str | None) -> LLM:
