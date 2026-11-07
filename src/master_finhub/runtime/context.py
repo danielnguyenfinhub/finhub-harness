@@ -203,7 +203,7 @@ class ContextManager:
             return clipped
         return self._compacted(clipped, total, self.retain_tokens, tools_tokens)
 
-    def compact(self, messages: list[Message]) -> list[Message]:
+    def compact(self, messages: list[Message], tools_tokens: int = 0) -> list[Message]:
         """Compact now, even below the threshold: the provider said the window is full.
 
         Keeps a tail of at most half the current size. Raises ContextOverflowError when nothing older
@@ -212,7 +212,9 @@ class ContextManager:
         """
         clipped = self._clipped(messages)
         total = sum(estimate_message(m) for m in clipped)
-        return self._compacted(clipped, total, min(self.retain_tokens, total // 2))
+        return self._compacted(
+            clipped, total + tools_tokens, min(self.retain_tokens, total // 2), tools_tokens
+        )
 
     def _compacted(
         self, clipped: list[Message], total: int, retain: int, tools_tokens: int = 0
@@ -220,20 +222,25 @@ class ContextManager:
         pinned = 1 if clipped and clipped[0].role == "user" else 0
         keep_from = select_compactable_range(clipped, retain, pinned)
         if keep_from is None:
-            raise self._overflow(clipped, total)
+            raise self._overflow(clipped, total, tools_tokens)
         result = [*clipped[:pinned], summarise(clipped[pinned:keep_from]), *clipped[keep_from:]]
         total = sum(estimate_message(m) for m in result) + tools_tokens
         if total >= self.threshold_tokens:
-            raise self._overflow(result, total)
+            raise self._overflow(result, total, tools_tokens)
         return result
 
-    def _overflow(self, messages: Sequence[Message], total: int) -> ContextOverflowError:
+    def _overflow(
+        self, messages: Sequence[Message], total: int, tools_tokens: int = 0
+    ) -> ContextOverflowError:
         sizes = [estimate_message(m) for m in messages]
         i = max(range(len(sizes)), key=sizes.__getitem__)
         hint = ", or lower clip_budget_tokens" if messages[i].role == "tool" else ""
+        convo = total - tools_tokens
+        larger = "tool catalogue" if tools_tokens > convo else "conversation"
         return ContextOverflowError(
-            f"Conversation is {total} estimated tokens, above the {self.threshold_tokens} "
-            "threshold, and nothing older can be compacted without splitting a tool call "
+            f"Context is {total} estimated tokens, above the {self.threshold_tokens} threshold: "
+            f"the conversation is {convo} and the tool catalogue is {tools_tokens}; the larger "
+            f"part is the {larger}. Nothing older can be compacted without splitting a tool call "
             f"from its result. Largest message: #{i} ({messages[i].role}, {sizes[i]} tokens). "
             f"Raise context_window_tokens{hint}."
         )

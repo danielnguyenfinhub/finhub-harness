@@ -47,6 +47,10 @@ NAME_RE: Final = re.compile(r"(?!.*__)[a-z0-9_-]{1,32}")  # no "__": it joins se
 MAX_DESCRIPTION_CHARS: Final = 2_000  # per tool; the catalogue is sent to the model on every turn
 MAX_SCHEMA_CHARS: Final = 16_000  # serialized inputSchema per tool
 MAX_TOOLS: Final = 500
+MAX_TOOL_NAME_CHARS: Final = 128  # a longer or non-printable tool name is refused
+MAX_CATALOGUE_CHARS: Final = 400_000  # descriptions + serialized schemas of one server, together
+SERVER_REPLY_TIMEOUT_S: Final = 5.0  # reply to a server-initiated request; expiry kills the child
+SHOWN_NAME_CHARS: Final = 80  # most of a server-supplied name shown in any message
 MAX_RPC_ID_CHARS: Final = 128
 SPEC_TIMEOUT_MARGIN_S: Final = 5.0
 TRUNCATED_MARK: Final = "...[truncated]"
@@ -82,6 +86,7 @@ class StdioServer:
     call_timeout_s: float = DEFAULT_CALL_TIMEOUT_S
     allowed_tools: frozenset[str] | None = None
     blocked_tools: frozenset[str] = frozenset()
+    max_catalogue_chars: int = MAX_CATALOGUE_CHARS
 
     def __post_init__(self) -> None:
         if not NAME_RE.fullmatch(self.name):
@@ -96,7 +101,8 @@ class McpToolInfo:
     input_schema: dict[str, Any]
     # annotations.readOnlyHint is True; a tool with no hint counts as a write tool, as the MCP spec does
     read_only: bool = False
-    digest: str = ""  # hash of description + inputSchema as the server sent them
+    # hash of description, inputSchema, title, outputSchema and annotations as sent
+    digest: str = ""
 
 
 @dataclass(frozen=True)
@@ -108,13 +114,29 @@ class McpResult:
 def public_tool_name(server: str, tool: str) -> str:
     """Always ends in a digest of (server, tool), so two different pairs never share a name."""
     clean = re.sub(r"[^A-Za-z0-9_-]", "_", f"mcp__{server}__{tool}")
-    digest = hashlib.sha256(f"{server}\0{tool}".encode()).hexdigest()[:12]
-    return f"{clean[: PUBLIC_MAX - 13]}_{digest}"
+    digest = hashlib.sha256(f"{server}\0{tool}".encode()).hexdigest()[:32]  # 128 bits
+    return f"{clean[: PUBLIC_MAX - 33]}_{digest}"
 
 
-def tool_digest(description: str, schema: Any) -> str:
-    blob = json.dumps([description, schema], sort_keys=True, default=str)
-    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+def tool_digest(
+    description: str,
+    schema: Any,
+    *,
+    title: Any = None,
+    output_schema: Any = None,
+    annotations: Any = None,
+) -> str:
+    """Hash of everything the server says about a tool, over the untruncated values."""
+    blob = json.dumps(
+        [description, schema, title, output_schema, annotations], sort_keys=True, default=str
+    )
+    return hashlib.sha256(blob.encode()).hexdigest()[:32]
+
+
+def _short(text: str, limit: int = SHOWN_NAME_CHARS) -> str:
+    """repr of a server-supplied string, cut to ``limit`` characters with an ellipsis."""
+    shown = repr(text)
+    return shown if len(shown) <= limit else shown[: limit - 1] + "\u2026"
 
 
 def redact(text: str, secrets: Iterable[str], *, mcp_shapes: bool = True) -> str:
@@ -249,9 +271,9 @@ class McpClient:
             try:
                 self._send(
                     {"jsonrpc": "2.0", "id": req_id, "error": err},
-                    timeout=self._server.call_timeout_s,
+                    timeout=SERVER_REPLY_TIMEOUT_S,
                 )
-            except McpClosed as exc:
+            except (McpClosed, TimeoutError) as exc:
                 self._fail(str(exc))
                 return False
             return True
@@ -315,7 +337,7 @@ class McpClient:
         msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
         if params is not None:
             msg["params"] = params
-        self._send(msg)
+        self._send(msg, timeout=self._server.call_timeout_s)
 
     def request(
         self, method: str, params: dict[str, Any] | None = None, timeout_s: float | None = None
@@ -331,7 +353,7 @@ class McpClient:
         msg: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": method}
         if params is not None:
             msg["params"] = params
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout  # one deadline for the write and the wait
         try:
             self._send(msg, timeout=timeout)
             reply = waiter.get(timeout=max(0.0, deadline - time.monotonic()))
@@ -365,7 +387,9 @@ class McpClient:
             },
         )
         if result.get("protocolVersion") not in SUPPORTED_VERSIONS:
-            raise McpError(f"unsupported MCP protocol version {result.get('protocolVersion')!r}")
+            raise McpError(
+                f"unsupported MCP protocol version {_short(str(result.get('protocolVersion')))}"
+            )
         self.notify("notifications/initialized")
         self._initialized = True
         return result
@@ -373,29 +397,53 @@ class McpClient:
     def list_tools(self) -> list[McpToolInfo]:
         self._require_initialized()
         tools: list[McpToolInfo] = []
+        names: set[str] = set()
+        catalogue = 0
         cursor: str | None = None
         seen: set[str] = set()
         for _ in range(MAX_TOOL_PAGES):
             result = self.request("tools/list", {"cursor": cursor} if cursor else {})
             for raw in result.get("tools") or []:
                 if isinstance(raw, dict) and isinstance(raw.get("name"), str):
-                    schema = raw.get("inputSchema")
-                    hints = raw.get("annotations")
+                    name = raw["name"]
                     if len(tools) >= MAX_TOOLS:
                         raise McpError(f"server lists more than {MAX_TOOLS} tools")
+                    if not name or len(name) > MAX_TOOL_NAME_CHARS or not name.isprintable():
+                        raise McpError(
+                            f"server lists a tool name that is empty, over {MAX_TOOL_NAME_CHARS} "
+                            f"characters or not printable: {_short(name)}"
+                        )
+                    if name in names:
+                        raise McpError(f"server lists the tool {_short(name)} more than once")
+                    names.add(name)
+                    schema = raw.get("inputSchema")
+                    hints = raw.get("annotations")
                     desc = str(raw.get("description") or "")
+                    digest = tool_digest(
+                        desc,
+                        schema,
+                        title=raw.get("title"),
+                        output_schema=raw.get("outputSchema"),
+                        annotations=hints,
+                    )
                     schema = schema if isinstance(schema, dict) else {"type": "object"}
-                    digest = tool_digest(desc, schema)
                     if len(desc) > MAX_DESCRIPTION_CHARS:
                         desc = desc[: MAX_DESCRIPTION_CHARS - len(TRUNCATED_MARK)] + TRUNCATED_MARK
                     size = len(json.dumps(schema, default=str))
                     if size > MAX_SCHEMA_CHARS:  # keep the tool, drop the schema, say so
                         desc += f" [inputSchema of {size} chars omitted; over {MAX_SCHEMA_CHARS}]"
                         schema = {"type": "object", "additionalProperties": True}
+                        size = len(json.dumps(schema))
+                    catalogue += len(desc) + size
+                    if catalogue > self._server.max_catalogue_chars:
+                        raise McpError(
+                            f"server catalogue is over {self._server.max_catalogue_chars} "
+                            "characters of descriptions and schemas"
+                        )
                     tools.append(
                         McpToolInfo(
-                            name=raw["name"],
-                            public_name=public_tool_name(self._server.name, raw["name"]),
+                            name=name,
+                            public_name=public_tool_name(self._server.name, name),
                             description=desc,
                             input_schema=schema,
                             read_only=isinstance(hints, dict) and hints.get("readOnlyHint") is True,
@@ -502,17 +550,26 @@ class McpTool:
 def mcp_tools(
     client: McpClient,
     *,
-    previous: Collection[str] | Mapping[str, str] | None = None,
-    enabled: Collection[str] = (),
+    previous: Mapping[str, str] | None = None,
+    enabled: Collection[str] | Mapping[str, str] = (),
     trusted_read_only: Collection[str] = (),
 ) -> list[McpTool]:
-    """Tools of one server. ``previous`` is an earlier listing: tool names, or a mapping of name to
-    ``McpToolInfo.digest``. A tool that is new since then, or (with a mapping) whose description or
-    schema changed, comes back quarantined: a call is refused with a reason until its name is in
-    ``enabled``. A new tool skips quarantine only if the operator names it in ``trusted_read_only``;
-    the server's own readOnlyHint is not trusted. The first listing (``previous`` is None) is the
-    baseline. (adapted from references/paperclip/doc/MCP-ACCESS-GOVERNANCE.md:221 (MIT), idea only)
+    """Tools of one server.
+
+    ``previous`` is an earlier listing as a mapping of tool name to ``McpToolInfo.digest``; a set or
+    list of names is refused with TypeError, because names alone cannot show that a tool changed.
+    A tool that is new since then, or whose digest (description, schema, title, output schema or
+    annotations) changed, comes back quarantined: a call is refused with a reason until the operator
+    enables it. ``enabled`` is either a mapping of name to the digest the operator approved (the
+    tool runs only while its digest still matches) or a plain collection of names (a new tool
+    with that name runs, but a tool that is in ``previous`` with another digest stays quarantined;
+    approve a changed tool by giving its new digest in a mapping). A new tool skips quarantine only
+    if the operator names it in ``trusted_read_only``; the server's own readOnlyHint is not trusted.
+    The first listing (``previous`` is None) is the baseline.
+    (adapted from references/paperclip/doc/MCP-ACCESS-GOVERNANCE.md:221 (MIT), idea only)
     """
+    if previous is not None and not isinstance(previous, Mapping):
+        raise TypeError("previous must be a mapping of tool name to digest, not a set or list")
     cfg = client._server
     tools: list[McpTool] = []
     for info in client.list_tools():
@@ -521,18 +578,24 @@ def mcp_tools(
         ):
             continue
         why = None
-        if previous is not None and info.name not in enabled:
+        if previous is not None:
+            by_digest = isinstance(enabled, Mapping)
+            approved = (
+                enabled.get(info.name) == info.digest
+                if isinstance(enabled, Mapping)
+                else info.name in enabled
+            )
             if info.name not in previous:
-                if info.name not in trusted_read_only:
+                if not approved and info.name not in trusted_read_only:
                     why = (
-                        f"quarantined: tool {info.name!r} is new since the last catalog listing "
-                        "and the operator has not trusted it; an operator must enable it by name "
-                        "before it can be called"
+                        f"quarantined: tool {_short(info.name)} is new since the last catalog "
+                        "listing and the operator has not trusted it; an operator must enable it "
+                        "by name before it can be called"
                     )
-            elif isinstance(previous, Mapping) and previous[info.name] != info.digest:
+            elif previous[info.name] != info.digest and not (by_digest and approved):
                 why = (
-                    f"quarantined: tool {info.name!r} changed its description or schema since "
-                    "the last catalog listing; an operator must enable it by name before it "
+                    f"quarantined: tool {_short(info.name)} changed its definition since the "
+                    "last catalog listing; an operator must approve its new digest before it "
                     "can be called"
                 )
         tools.append(McpTool(client, info, why))

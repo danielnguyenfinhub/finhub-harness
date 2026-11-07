@@ -24,6 +24,10 @@ SENSITIVE_ENV: Final = re.compile(
     r"|^(SSH_AUTH_SOCK|DATABASE_URL|GOOGLE_APPLICATION_CREDENTIALS|KUBECONFIG)$",
     re.IGNORECASE,
 )
+# git takes identity and config-by-env names; they are not secrets, so allow before deny
+ALLOWED_ENV: Final = re.compile(
+    r"GIT_(AUTHOR|COMMITTER)_(NAME|EMAIL|DATE)|GIT_CONFIG_(COUNT|(KEY|VALUE)_[0-9]+)"
+)
 DEFAULT_MAX_OUTPUT_BYTES: Final = 64_000
 QUEUE_MAX: Final = 256
 READ_SIZE: Final = 65_536
@@ -33,7 +37,11 @@ ChunkKind = Literal["stdout", "stderr", "exit", "timeout"]
 
 def scrubbed_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
     """os.environ minus secret-looking names; explicit ``extra`` wins."""
-    env = {k: v for k, v in os.environ.items() if not SENSITIVE_ENV.search(k)}
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if ALLOWED_ENV.fullmatch(k) or not SENSITIVE_ENV.search(k)
+    }
     if extra:
         env.update(extra)
     return env
