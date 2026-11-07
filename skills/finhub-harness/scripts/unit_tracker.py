@@ -13,7 +13,8 @@ Usage, run from the project root:
   those units out, `claim` never hands them out, and `status` prints FAILED. Rules C1-C5 in the reference describe the loop that
   uses it (adapted from references/hive/core/framework/host/playbook/runner.py:57 and :305
   (Apache-2.0), ideas only).
-Exit 0 ok; 3 `pending` found no unit left, or `claim` found none unclaimed (the job has converged);
+Exit 0 ok; 3 `pending` found no unit left, or `claim` found none unclaimed (this is not success: read
+`status`, where only `STATE: converged` means every unit is done and none given up on);
 4 a claim or release was not granted (not-found, already-done, dead-lettered, owned-by-other, not-held),
 or an upsert named a dead-lettered unit (`UPSERT: dead-lettered`: a dead unit is final, so it is neither
 claimed nor written; the only way back is a new key);
@@ -28,7 +29,7 @@ and an upsert that sets it back to null reopens the unit. "What is left" is a fr
 table every time, so the script keeps no memory of its own and `init` run again never resets a
 done row. Only tables made by `init` accept writes, only the columns it named, and names that
 start with an underscore belong to the script.
-Rules U1-U8 are in skills/finhub-harness/references/unit-tracker.md.
+Rules U1-U12 are in skills/finhub-harness/references/unit-tracker.md.
 The registry of writable tables and columns, the key columns that make a write idempotent, the
 refusal of framework-owned and unregistered tables, and the done-predicate column are adapted from
 references/hive/core/framework/tools/tracker_tools.py:1-31 and :743-787 and
@@ -91,7 +92,53 @@ def _registered(con: sqlite3.Connection, table: str) -> tuple[list[str], list[st
     ).fetchone()
     if row is None:
         raise Refused(f"table {table!r} was not made by init; nothing may write to it")
-    return json.loads(row[0]), json.loads(row[1]), row[2]
+    key, cols, done = json.loads(row[0]), json.loads(row[1]), row[2]
+    _migrate_keys(con, table, key, done)
+    return key, cols, done
+
+
+def _migrate_keys(con: sqlite3.Connection, table: str, key: list[str], done: str) -> None:
+    """U12: a file made before key values were kept as text may hold integer or real keys. Convert
+    them once, in one transaction. Two rows that collapse to one text key keep the dead-lettered row,
+    else the done row, else the one already stored as text; the other is dropped and counted."""
+    q = _ident(table, "table")
+    bad = " OR ".join(f"typeof(\"{k}\") != 'text'" for k in key)
+    if con.execute(f"SELECT 1 FROM {q} WHERE {bad} LIMIT 1").fetchone() is None:
+        return
+    con.execute("BEGIN IMMEDIATE")  # a second migrator waits here, then finds nothing to do
+    try:
+        cols = [r[1] for r in con.execute(f"PRAGMA table_info({q})")]
+        dead = DEAD_COL in cols
+
+        def rank(r: sqlite3.Row) -> int:
+            return 2 if dead and r[DEAD_COL] is not None else 1 if r[done] is not None else 0
+
+        con.row_factory = sqlite3.Row
+        moved = merged = 0
+        for old in con.execute(f"SELECT rowid AS _rid, * FROM {q} WHERE {bad}").fetchall():
+            new = [v if isinstance(v, str) else json.dumps(v) for v in (old[k] for k in key)]
+            where = " AND ".join(f'"{k}" = ?' for k in key)
+            twin = con.execute(
+                f"SELECT rowid AS _rid, * FROM {q} WHERE {where} AND rowid != ?",
+                [*new, old["_rid"]],
+            ).fetchone()
+            moved += 1
+            if twin is not None:
+                merged += 1
+                loser = twin if rank(old) > rank(twin) else old
+                con.execute(f"DELETE FROM {q} WHERE rowid = ?", (loser["_rid"],))
+                if loser is old:
+                    continue
+            sets = ", ".join(f'"{k}" = ?' for k in key)
+            con.execute(f"UPDATE {q} SET {sets} WHERE rowid = ?", [*new, old["_rid"]])
+        con.commit()
+    except BaseException:
+        con.rollback()
+        raise
+    finally:
+        con.row_factory = None
+    if moved:
+        print(f"MIGRATED: {moved} rows, {merged} merged")
 
 
 def _init(args: argparse.Namespace) -> int:
@@ -187,8 +234,8 @@ def _upsert_held(
     _claim_column(con, args.table)
     _dead_column(con, args.table, add=True)
     where, kv = _key_where(key, json.dumps({k: row[k] for k in key}))
-    sets =[c for c in row if c not in key]
-    body =", ".join(f'{_ident(c, "column")} = ?' for c in sets) or f'"{CLAIM_COL}" = "{CLAIM_COL}"'
+    sets = [c for c in row if c not in key]
+    body = ", ".join(f'{_ident(c, "column")} = ?' for c in sets) or f'"{CLAIM_COL}" = "{CLAIM_COL}"'
     vals = [json.dumps(v) if isinstance(v, (list, dict)) else v for v in (row[c] for c in sets)]
     with con:
         changed = con.execute(
@@ -368,7 +415,7 @@ def _status(args: argparse.Namespace) -> int:
     if dead:
         print(f"FAILED: {dead}")
     state = "open" if left or not total else "stopped-with-failures" if dead else "converged"
-    print("STATE: " + state)  # converged means every unit is done, none given up on
+    print("STATE: " + state)  # only `converged` is success; stopped-with-failures is not
     return 0
 
 
