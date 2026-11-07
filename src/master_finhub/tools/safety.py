@@ -30,6 +30,7 @@ import shlex
 from collections.abc import Iterable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Final, Literal
 
 from master_finhub.runtime.loop import ToolCall, ToolGuard
@@ -343,6 +344,7 @@ class _State:
     var_overflow: bool = False  # more than MAX_TRACKED_VARS names: later `$` words are refused
 
 
+@lru_cache(maxsize=8192)
 def cmd_name(tok: str) -> str:
     base = re.split(r"[\\/]", tok)[-1].lower()
     for ext in (".exe", ".com"):
@@ -494,10 +496,16 @@ def _peel(ws: list[str], i: int, out: list[list[str]], left: list[int]) -> None:
 def cores(words: list[str]) -> list[list[str]]:
     """Every reading of a segment's command: the main one first, then the readings of unknown
     long options, then the d5dd3fb one. A rule applies if it holds for any reading."""
+    return [list(c) for c in _cores_cached(tuple(words))]
+
+
+@lru_cache(maxsize=4096)
+def _cores_cached(words_t: tuple[str, ...]) -> tuple[tuple[str, ...], ...]:
+    words = list(words_t)
     out: list[list[str]] = []
     _peel(words, 0, out, [MAX_BRANCHES])
     found = [out[-1], *out[:-1], strip_wrappers_legacy(words)]
-    return list({tuple(c): c for c in found}.values())
+    return tuple(tuple(c) for c in {tuple(c): c for c in found})
 
 
 def strip_wrappers(words: list[str]) -> list[str]:
