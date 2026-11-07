@@ -375,10 +375,8 @@ def test_readme_claims_only_what_is_wired() -> None:
     text = (REPO / "README.md").read_text()
     assert "register only `EchoTool`" in text
     assert "The command guard, workspace fence and checkpoints are wired" in text
-    assert (
-        "Docker engine, MCP client and permission modes are libraries that no shipped entrypoint wires yet"
-        in text
-    )
+    assert "`--mode read-only|workspace-write|full-access`" in text
+    assert "Docker engine and MCP client are libraries that no shipped entrypoint wires yet" in text
     assert (
         "command guard, workspace fence, Docker engine, MCP client and permission modes are libraries"
         not in text
