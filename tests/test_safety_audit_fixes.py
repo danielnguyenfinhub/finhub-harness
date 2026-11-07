@@ -58,7 +58,6 @@ BENIGN = [
     "cat ./notes.txt",
     "cat notes.txt",
     "ls *",
-    "ls .*",
     "cat src/*.py",
     "ls ~/proj?cts",
     "echo {a,b}",
@@ -74,6 +73,17 @@ BENIGN = [
 @pytest.mark.parametrize("cmd", BENIGN)
 def test_benign_neighbours_allowed(cmd: str) -> None:
     assert not denied(cmd)
+
+
+def test_dot_wildcard_allowed_only_where_no_entry_is_a_credential(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # RA2-01: `.*` is judged by what it matches. HOME holds `.ssh`, a project directory does not.
+    assert denied("ls .*")
+    (tmp_path / "proj").mkdir()
+    (tmp_path / "proj" / ".gitignore").write_text("x")
+    monkeypatch.chdir(tmp_path / "proj")
+    assert not denied("ls .*")
 
 
 def test_bare_word_symlink_to_credential_denied(home: Path) -> None:

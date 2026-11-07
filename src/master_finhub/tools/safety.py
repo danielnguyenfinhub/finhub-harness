@@ -44,7 +44,19 @@ MAX_FUNC_NAMES: Final = 64
 MAX_BRACE_FORMS: Final = 64
 MAX_TRACKED_VARS: Final = 64
 UNDER_DIRS: Final = frozenset({"home", "usr", "var", "etc"})  # rm of a child of these is refused
-COMMAND_ARG_KEYS: Final = frozenset({"command", "cmd", "script", "shell_command"})
+COMMAND_ARG_KEYS: Final = frozenset(
+    {
+        "command",
+        "cmd",
+        "script",
+        "shell_command",
+        "shell",
+        "commands",
+        "command_line",
+        "args",
+        "argv",
+    }
+)
 # adapted from references/openharness/src/openharness/engine/query.py:1026 (MIT): file_path, path, root
 PATH_ARG_KEYS: Final = frozenset(
     {
@@ -64,8 +76,19 @@ PATH_ARG_KEYS: Final = frozenset(
         "dst",
         "target",
         "uri",
+        "dest",
+        "output",
+        "out",
+        "input",
+        "files",
+        "workdir",
+        "old_path",
+        "new_path",
+        "abs_path",
     }
 )
+# RA2-12: a key that ends like a path name is a path whatever its prefix (`output_file`)
+PATH_KEY_SUFFIXES: Final = ("_path", "_file", "_dir", "_directory", "_paths", "_files", "_cwd")
 PUNCT: Final = "();<>|&`"
 OPS: Final = ("&&", "||", "|&", ">>", "&>", ">&", "<(", ";", "&", "|", "(", ")", "`", ">", "<")
 REDIRECTS: Final = frozenset({">", ">>", "&>", ">&"})
@@ -174,21 +197,64 @@ WRAPPERS: Final = frozenset(
         "busybox",
         "stdbuf",
         "timeout",
+        "setsid",
+        "ionice",
+        "strace",
+        "ltrace",
     ]
 )
+# RA2-04: words that open a command in the shell grammar; the command follows them
+CONTROL_WORDS: Final = frozenset(["then", "do", "else", "elif", "if", "while", "until", "{", "!"])
 # NF3: wrapper flags that consume the next word (so it is not mistaken for the command).
 WRAPPER_VALUE_FLAGS: Final[Mapping[str, frozenset[str]]] = {
     "sudo": frozenset({"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-T", "-U"}),
     "doas": frozenset({"-u", "-C"}),
-    "env": frozenset({"-u", "-C", "-S", "--chdir"}),
+    "env": frozenset({"-u", "-C", "-S"}),
     "nice": frozenset({"-n"}),
     "stdbuf": frozenset({"-i", "-o", "-e"}),
     "timeout": frozenset({"-s", "-k"}),
     "xargs": frozenset({"-I", "-n", "-P", "-d", "-E", "-L", "-s", "-a"}),
     "exec": frozenset({"-a"}),
     "time": frozenset({"-f", "-o"}),
+    "ionice": frozenset({"-c", "-n", "-p", "-P", "-u"}),
+    "strace": frozenset({"-e", "-o", "-p", "-s", "-u", "-E"}),
+    "ltrace": frozenset({"-e", "-o", "-p", "-s", "-u"}),
 }
-SHELLS: Final = frozenset(["sh", "bash", "dash", "ksh", "zsh", "fish"])
+# RA2-05: long options that take a value in the next word (`--opt=value` is one word already)
+WRAPPER_VALUE_LONG: Final[Mapping[str, frozenset[str]]] = {
+    "sudo": frozenset(
+        {"--user", "--group", "--chdir", "--host", "--prompt", "--role", "--type", "--other-user"}
+        | {"--close-from", "--command-timeout", "--chroot"}
+    ),
+    "doas": frozenset(),
+    "env": frozenset({"--unset", "--chdir", "--split-string"}),
+    "nice": frozenset({"--adjustment"}),
+    "stdbuf": frozenset({"--input", "--output", "--error"}),
+    "timeout": frozenset({"--signal", "--kill-after"}),
+    "xargs": frozenset(
+        {"--max-args", "--max-procs", "--delimiter", "--eof", "--max-lines", "--arg-file"}
+        | {"--max-chars"}
+    ),
+    "exec": frozenset(),
+    "time": frozenset({"--format", "--output"}),
+}
+SHELLS: Final = frozenset(
+    [
+        "sh",
+        "bash",
+        "dash",
+        "ksh",
+        "zsh",
+        "fish",
+        "ash",
+        "csh",
+        "tcsh",
+        "mksh",
+        "rbash",
+        "yash",
+        "su",
+    ]
+)
 POWERSHELLS: Final = frozenset({"pwsh", "powershell"})
 INTERPRETERS: Final = (
     SHELLS | frozenset(["perl", "ruby", "node", "iex", "invoke-expression"]) | POWERSHELLS
@@ -239,6 +305,8 @@ RULE_REASONS: Final[Mapping[str, str]] = {
     "not-allowlisted": "(allowlist mode) the command is not in the allowed list",
     "sensitive-path": "touches a credential or key location (SSH, cloud, registry or token "
     "files); ask Daniel to handle credentials manually",
+    "substitution-not-allowlisted": "(allowlist mode) a command substitution runs commands that "
+    "cannot be matched against the allowed list",
     "path-too-long": "a path or command word is longer than its limit after expanding ~ and "
     "$VARS (4,096 for path arguments, 10,000 in commands) and was not inspected",
     "path-budget": "the call names more path components than can be inspected at once "
@@ -332,8 +400,9 @@ def recursive_flag(name: str, args: list[str]) -> bool:
     return False
 
 
-def strip_wrappers(words: list[str]) -> list[str]:
-    """Peel VAR=x assignments and wrappers (with their flag values) to expose the real command."""
+def strip_wrappers_legacy(words: list[str]) -> list[str]:
+    """The d5dd3fb reading, kept so no command it denied can be allowed: VAR=x assignments and
+    wrappers with single-letter flag values only."""
     i = 0
     while i < len(words):
         if ASSIGN_RE.fullmatch(words[i]):
@@ -352,6 +421,88 @@ def strip_wrappers(words: list[str]) -> list[str]:
         if wrapper == "timeout" and i < len(words):
             i += 1  # the duration
     return words[i:]
+
+
+MAX_BRANCHES: Final = 8  # readings of an unknown long wrapper option (value or not)
+
+
+def _split_string(value: str) -> list[str]:
+    return shlex.split(value)  # ValueError on bad quoting: the caller fails closed
+
+
+def _peel(ws: list[str], i: int, out: list[list[str]], left: list[int]) -> None:
+    """Append every reading of the command in ws[i:] to `out`, the main one last. Peels VAR=x,
+    control words (`then`, `do`, `{`, `!` ...), `function NAME`, and wrappers with their option
+    values: single flags, clustered flags (`-Eu root`), long options, `--`, and `env -S 'cmd'`.
+    An unknown long option may or may not take a value, so both readings are kept."""
+    while i < len(ws):
+        w = ws[i]
+        if ASSIGN_RE.fullmatch(w) or w in CONTROL_WORDS:
+            i += 1
+            continue
+        if w == "function":
+            i += 2  # the function name
+            continue
+        wrapper = cmd_name(w)
+        if wrapper not in WRAPPERS:
+            break
+        i += 1
+        valued = WRAPPER_VALUE_FLAGS.get(wrapper, frozenset())
+        long_valued = WRAPPER_VALUE_LONG.get(wrapper, frozenset())
+        while i < len(ws) and ws[i].startswith("-"):
+            flag = ws[i]
+            i += 1
+            if flag == "--":
+                break
+            if flag.startswith("--"):
+                if "=" in flag:
+                    if wrapper == "env" and flag.startswith("--split-string="):
+                        ws = [*ws[: i - 1], *_split_string(flag.partition("=")[2]), *ws[i:]]
+                        i -= 1
+                    continue
+                if flag in long_valued:
+                    if i < len(ws):
+                        if wrapper == "env" and flag == "--split-string":
+                            ws = [*ws[: i - 1], *_split_string(ws[i]), *ws[i + 1 :]]
+                            i -= 1
+                        else:
+                            i += 1
+                elif i < len(ws) and left[0] > 0:
+                    left[0] -= 1
+                    _peel(ws, i + 1, out, left)  # reading B: the next word was its value
+                continue
+            for j in range(1, len(flag)):
+                if "-" + flag[j] not in valued:
+                    continue
+                if j + 1 < len(flag):  # `-uroot`, `-Sstring`: the value is attached
+                    value, step = flag[j + 1 :], 0
+                elif i < len(ws):
+                    value, step = ws[i], 1
+                else:
+                    break
+                if wrapper == "env" and flag[j] == "S":
+                    ws = [*ws[: i - 1], *_split_string(value), *ws[i + step :]]
+                    i -= 1
+                else:
+                    i += step
+                break
+        if wrapper == "timeout" and i < len(ws):
+            i += 1  # the duration
+    out.append(ws[i:])
+
+
+def cores(words: list[str]) -> list[list[str]]:
+    """Every reading of a segment's command: the main one first, then the readings of unknown
+    long options, then the d5dd3fb one. A rule applies if it holds for any reading."""
+    out: list[list[str]] = []
+    _peel(words, 0, out, [MAX_BRANCHES])
+    found = [out[-1], *out[:-1], strip_wrappers_legacy(words)]
+    return list({tuple(c): c for c in found}.values())
+
+
+def strip_wrappers(words: list[str]) -> list[str]:
+    """The main reading of the command in a segment (see `cores`)."""
+    return cores(words)[0]
 
 
 def git_rule(args: list[str]) -> str | None:
@@ -411,7 +562,14 @@ def _inline_rule(name: str, args: list[str], depth: int, sensitive: bool) -> str
         if kind == "enc":
             return "uninspectable-command"
         if kind == "cmd" and i + 1 < len(args):
-            return _check(" ".join(args[i + 1 :]), depth + 1, sensitive)
+            rest = args[i + 1 :]
+            rule = _check(" ".join(rest), depth + 1, sensitive)
+            skip = 0  # RA2-05: `bash -c -- 'cmd'`, `bash -c -x 'cmd'`: options before the string
+            while skip < len(rest) and rest[skip].startswith("-"):
+                skip += 1
+            if rule is None and 0 < skip < len(rest):
+                rule = _check(" ".join(rest[skip:]), depth + 1, sensitive)
+            return rule
     return None
 
 
@@ -430,7 +588,7 @@ class _TooManyForms(Exception):
     pass
 
 
-def _var_forms(word: str, names: Mapping[str, str]) -> list[str]:
+def _var_forms_once(word: str, names: Mapping[str, str]) -> list[str]:
     """Every reading of one word's variables. The first is `_subst`'s. A name the guard cannot
     resolve reads as itself and as empty; `${X:-w}`, `${X-w}` and `${X:=w}` also as `w`, and
     `${X:+w}` and `${X+w}` also as `w` or empty (a set variable). With more than
@@ -468,6 +626,26 @@ def _var_forms(word: str, names: Mapping[str, str]) -> list[str]:
             last = m.end()
         out.append("".join(pieces) + word[last:])
     return list(dict.fromkeys(out))
+
+
+MAX_NEST: Final = 4  # `${F:-${G:-${H}}}`: levels of parameter expansion read
+MAX_NEST_FORMS: Final = 256
+
+
+def _var_forms(word: str, names: Mapping[str, str]) -> list[str]:
+    """`_var_forms_once` applied again to its own results, so a nested `${F:-${G}}` is read from
+    the inside out (RA2-10). _TooManyForms past MAX_NEST_FORMS readings."""
+    forms = _var_forms_once(word, names)
+    for _ in range(MAX_NEST - 1):
+        if not any("${" in f for f in forms):
+            break  # nothing nested is left: the common word costs one pass
+        nxt = list(dict.fromkeys(g for f in forms for g in _var_forms_once(f, names)))
+        if len(nxt) > MAX_NEST_FORMS:
+            raise _TooManyForms
+        if nxt == forms:
+            break
+        forms = nxt
+    return forms
 
 
 def _literal_dir(arg: str, names: Mapping[str, str], cwd: str | None) -> str | None:
@@ -618,6 +796,13 @@ def _sensitive_word_rule(words: list[str], state: _State) -> str | None:
     return None
 
 
+def _unknown_dir(state: _State) -> None:
+    """The directory the command runs in can no longer be named: later `rm -rf *` is judged as if
+    it ran in a root (RA2-11)."""
+    if state.dyn_base is None:
+        state.dyn_base = state.cwd if state.cwd is not None else os.getcwd()
+
+
 def _track(words: list[str], core: list[str], state: _State) -> None:
     """Remember NAME=literal assignments and literal `cd` targets for the words that follow."""
     for w in words:
@@ -640,13 +825,17 @@ def _track(words: list[str], core: list[str], state: _State) -> None:
     if name == "popd":
         if state.stack:
             state.cwd, state.dyn_base = state.stack.pop()
+        else:
+            _unknown_dir(state)
         return
     if name in ("cd", "pushd"):
         args = [_subst(a, state.vars) for a in core[1:]]
         target = [a for a in args if not a.startswith("-")]
-        if args and not target:
-            return  # `cd -` and the like: keep the last known directory
+        if args and not target and "-" in args:
+            _unknown_dir(state)  # `cd -`: the previous directory is not known (RA2-11)
+            return
         if name == "pushd" and any(a.startswith("+") for a in args):
+            _unknown_dir(state)
             return  # a rotation of the stack: not followed
         if name == "pushd" and len(state.stack) < MAX_TRACKED_VARS:
             state.stack.append((state.cwd, state.dyn_base))
@@ -723,21 +912,201 @@ def _unscannable(words: list[str], core: list[str], name: str, args: list[str]) 
     return False
 
 
-def segment_rule(words: list[str], state: _State) -> str | None:
-    if state.sensitive:
-        joined = " ".join(words)
-        state.extra, state.extra_dyn = _seg_dirs(words, joined, state)
+def _cwd_root(state: _State) -> bool:
+    """The command may run in a root, home or system directory: the last `cd` named one, the
+    tracked directory is one, or the directory is unknown after `cd -`, `pushd +1`, `popd` or a
+    `cd` to a computed path (RA2-11)."""
+    if state.cwd_root or state.dyn_base is not None:
+        return True
+    return state.cwd is not None and dangerous_target(os.path.abspath(state.cwd), False, True)
+
+
+def _target_forms(word: str, state: _State) -> list[str]:
+    """Readings of one target word: as written, variables replaced (itself, empty, known,
+    `${X:-w}` alternatives) and braces expanded. _TooManyForms when there are too many."""
+    forms = [word]
+    for f in _var_forms(word, state.vars):
+        forms += _braces(f) if "{" in f and "," in f else [f]
+    return list(dict.fromkeys(forms))
+
+
+def _wide(comp: str) -> bool:
+    """A wildcard name with fewer than two literal characters (`*`, `.*`, `[a-z]*`, `d*`)."""
+    return len(_sp._GLOB_PART_RE.sub("", comp)) < 2
+
+
+def _glob_danger(f: str, cwd_root: bool) -> bool:
+    """RA2-03/06: a wildcard that can name a top-level entry of `/` or a system directory, a
+    child of /home /usr /var /etc, or a wide match directly under the home directory."""
+    if not GLOB_CHARS_RE.search(f):
+        return False
+    e = posixpath.normpath(re.sub(r"/+", "/", os.path.expanduser(f)))
+    comps = [c for c in e.split("/") if c not in ("", ".")]
+    if not e.startswith("/"):
+        return cwd_root and 0 < len(comps) <= 2 and _wide(comps[0])
+    if not comps:
+        return True
+    n = next((i for i, c in enumerate(comps) if GLOB_CHARS_RE.search(c)), None)
+    if n is None:
+        return False
+    if n == 0:
+        hits = [d for d in SYSTEM_DIRS if _sp._fn(d, comps[0].casefold())]
+        return bool(hits) and (
+            len(comps) == 1 or (len(comps) == 2 and any(d in UNDER_DIRS for d in hits))
+        )
+    if n == 1 and comps[0] in UNDER_DIRS and len(comps) == 2:
+        return True
+    prefix = "/" + "/".join(comps[:n])
+    homes = {posixpath.normpath(_home())}
+    try:
+        homes.add(os.path.realpath(_home()))
+    except OSError:
+        pass
+    return prefix in homes and len(comps) == n + 1 and _wide(comps[n])
+
+
+def _danger_form(f: str, cwd_root: bool, under: bool) -> bool:
+    if dangerous_target(f, cwd_root, under):
+        return True
+    if f.startswith("~"):
+        e = os.path.expanduser(f)
+        if e != f and dangerous_target(e, cwd_root, under):
+            return True
+    return _glob_danger(f, cwd_root)
+
+
+def _danger(a: str, state: _State, under: bool, use_cwd: bool = True) -> bool:
+    """dangerous_target over every reading of the word (RA2-03/06), and under the tracked
+    directory (RA2-11)."""
+    cwd_root = use_cwd and _cwd_root(state)
+    try:
+        forms = _target_forms(a, state)
+    except _TooManyForms:
+        return True
+    return any(_danger_form(f, cwd_root, under) for f in forms)
+
+
+DEVICE_SAMPLES: Final = (
+    *(f"/dev/{p}{c}" for p in ("sd", "hd", "vd", "xvd") for c in "abcdefghijklmnopqrstuvwxyz"),
+    *(f"/dev/{p}{n}" for p in ("nvme", "mmcblk", "disk", "rdisk", "md") for n in range(10)),
+    "/dev/mapper/x",
+    "/dev/dm-0",
+)
+
+
+def _device_word(w: str, state: _State) -> bool:
+    """RA2-09: a word that is, or after variables, braces or wildcards can be, a disk device."""
+    try:
+        forms = _target_forms(w, state)
+    except _TooManyForms:
+        return True
+    for f in forms:
+        g = posixpath.normpath(re.sub(r"/+", "/", f)) if f.startswith("/") else f
+        if DEVICE_RE.match(g) or DEVICE_RE.match(f):
+            return True
+        if (
+            g.startswith("/")
+            and GLOB_CHARS_RE.search(g)
+            and any(_sp._fn(d, g) for d in DEVICE_SAMPLES)
+        ):
+            return True
+    return False
+
+
+def _target_dir_values(args: list[str]) -> list[str]:
+    """Values of `-t DIR`, `-tDIR` and `--target-directory[=]DIR` of cp, mv and install."""
+    out: list[str] = []
+    for i, a in enumerate(args):
+        if a in ("-t", "--target-directory") and i + 1 < len(args):
+            out.append(args[i + 1])
+        elif a.startswith("--target-directory="):
+            out.append(a.partition("=")[2])
+        elif a.startswith("-t") and not a.startswith("--") and len(a) > 2:
+            out.append(a[2:])
+    return out
+
+
+TREE_SEARCHERS: Final = frozenset({"grep", "egrep", "fgrep", "zgrep", "rg", "ag", "ack"})
+TREE_ALWAYS: Final = frozenset({"rg", "ag", "ack", "bsdtar", "7z", "7za"})
+TREE_COPIERS: Final = frozenset({"cp", "rsync", "scp", "zip"})
+
+
+def _whole_tree(o: str, state: _State) -> bool:
+    """RA2-08: the word names `/`, the home directory or a parent of it (by any reading)."""
+    home = posixpath.normpath(_home())
+    whole = {"/"}
+    for h in {home, os.path.realpath(home)}:
+        d = h
+        while d not in ("/", ""):
+            whole.add(d)
+            d = posixpath.dirname(d)
+    try:
+        forms = _target_forms(o, state)
+    except _TooManyForms:
+        return True
+    for f in forms:
+        e = os.path.expanduser(os.path.expandvars(f))
+        if not e:
+            continue
+        if not e.startswith("/"):
+            if state.cwd is None:
+                continue
+            e = posixpath.join(os.path.abspath(state.cwd), e)
+        e = posixpath.normpath(re.sub(r"/+", "/", e))
         try:
-            hit = _sensitive_word_rule(words, state)
-        finally:
-            state.extra, state.extra_dyn = [], None
-        if hit:
-            return hit
-        hit = _quoted_subst_rule(words, joined, state)
-        if hit:
-            return hit
-    core = strip_wrappers(words)
-    _track(words, core, state)
+            r = _sp.realpath_bounded(e, _sp.current_scan() or _sp.Scan())
+        except Exception:  # noqa: BLE001 - fail closed
+            return True
+        if e in whole or r in whole:
+            return True
+    return False
+
+
+def _tree_read(name: str, args: list[str], positional: list[str], state: _State) -> bool:
+    """RA2-08: a recursive reader, copier or archiver whose source is a whole home or `/`."""
+    short = [a[1:] for a in args if a.startswith("-") and not a.startswith("--")]
+    if name in TREE_SEARCHERS:
+        if name not in TREE_ALWAYS and not (
+            recursive_flag(name, args) or "--dereference-recursive" in args
+        ):
+            return False
+        explicit = any(a in ("-e", "-f", "--regexp", "--file") for a in args)
+        paths = positional if explicit else positional[1:]
+        if not paths:
+            paths = ["."]  # grep -r and rg search the current directory
+    elif name in ("tar", "bsdtar"):
+        first = args[0] if args else ""
+        create = (
+            "--create" in args
+            or any("c" in c for c in short)
+            or (bool(first) and not first.startswith("-") and "c" in first)
+        )
+        if name == "tar" and not create:
+            return False
+        paths = positional
+    elif name in TREE_COPIERS:
+        archive = "--archive" in args or any("a" in c for c in short)
+        if not (recursive_flag(name, args) or (archive and name != "zip")):
+            return False
+        # the last operand of cp, rsync and scp is where the copy goes; a zip's first is its name
+        if name == "zip":
+            paths = positional[1:]
+        elif _target_dir_values(args):
+            paths = positional
+        else:
+            paths = positional[:-1]
+    elif name in TREE_ALWAYS:
+        paths = positional
+    elif name == "find" and any(a in ("-exec", "-execdir", "-ok", "-okdir") for a in args):
+        paths = list(itertools.takewhile(lambda a: not a.startswith(("-", "(", "!")), args)) or [
+            "."
+        ]
+    else:
+        return False
+    return any(_whole_tree(o, state) for o in paths)
+
+
+def _core_rule(words: list[str], core: list[str], state: _State) -> str | None:
     if not core:
         return None
     if core[0].startswith(("$", "`")):
@@ -750,46 +1119,49 @@ def segment_rule(words: list[str], state: _State) -> str | None:
     if name in DELETERS:
         if "--no-preserve-root" in args:
             return "rm-no-preserve-root"
-        if recursive_flag(name, args) and any(
-            dangerous_target(a, state.cwd_root, True) for a in positional
-        ):
+        if recursive_flag(name, args) and any(_danger(a, state, True) for a in positional):
             return "recursive-delete-root"
     if (
         name in PERMS
         and recursive_flag(name, args)
-        and any(dangerous_target(a, state.cwd_root, True) for a in positional)
+        and any(_danger(a, state, True) for a in positional)
     ):
         return "recursive-perms-root"
     deletes = "-delete" in args or (
         "-exec" in args and any(cmd_name(a) in ("rm", "shred") for a in args)
     )
-    find_start_bad = (
-        not args or args[0].startswith("-") or dangerous_target(args[0], state.cwd_root, True)
-    )
+    find_start_bad = not args or args[0].startswith("-") or _danger(args[0], state, True)
     if name == "find" and deletes and find_start_bad:
         return "find-delete-root"
+    if state.sensitive and _tree_read(name, args, positional, state):
+        return "sensitive-path"
     if name.startswith("mkfs") or name in FORMATTERS:
         return "format-disk"
     if name == "format" and args and re.fullmatch(r"[a-z]:", args[0], re.IGNORECASE):
         return "windows-format"
-    if name == "dd" and any(a.startswith("of=") and DEVICE_RE.match(a[3:]) for a in args):
-        return "raw-device-write"
+    if name == "dd":
+        for a in args:
+            if a.startswith("of=") and (
+                _device_word(a[3:], state) or "$" in _subst(a[3:], state.vars)
+            ):
+                return "raw-device-write"  # an unresolved variable may be a device
     if name in ("shred", "truncate", "tee"):
         for a in positional:
-            if DEVICE_RE.match(a) or (
-                a.startswith("/") and a.strip("/").split("/")[0] in SYSTEM_DIRS
+            if (
+                DEVICE_RE.match(a)
+                or (a.startswith("/") and a.strip("/").split("/")[0] in SYSTEM_DIRS)
+                or _device_word(a, state)
+                or _danger(a, state, False, False)  # `shred ~/[!.]*`: a wide wildcard in a root
             ):
                 return "raw-device-write"
-    if (
-        name in ("cp", "mv", "install")
-        and positional
-        and (DEVICE_RE.match(positional[-1]) or dangerous_target(positional[-1], False))
-    ):
-        return "raw-device-write"
+    if name in ("cp", "mv", "install"):
+        dests = [*positional[-1:], *_target_dir_values(args)]
+        if any(_device_word(d, state) or _danger(d, state, False, False) for d in dests):
+            return "raw-device-write"
     for i, a in enumerate(core):
         if a in REDIRECTS and i + 1 < len(core):
             target = core[i + 1]
-            if DEVICE_RE.match(target):
+            if _device_word(target, state):
                 return "redirect-raw-disk"
             if name in DOWNLOADERS:
                 state.downloaded.add(target.removeprefix("./"))
@@ -807,6 +1179,28 @@ def segment_rule(words: list[str], state: _State) -> str | None:
     if rule is None and state.sensitive and _unscannable(words, core, name, args):
         return "unscannable-path"
     return rule
+
+
+def segment_rule(words: list[str], state: _State) -> str | None:
+    if state.sensitive:
+        joined = " ".join(words)
+        state.extra, state.extra_dyn = _seg_dirs(words, joined, state)
+        try:
+            hit = _sensitive_word_rule(words, state)
+        finally:
+            state.extra, state.extra_dyn = [], None
+        if hit:
+            return hit
+        hit = _quoted_subst_rule(words, joined, state)
+        if hit:
+            return hit
+    readings = cores(words)
+    _track(words, readings[0], state)
+    for core in readings:
+        rule = _core_rule(words, core, state)
+        if rule:
+            return rule
+    return None
 
 
 def split_ops(tok: str) -> list[str]:
@@ -957,8 +1351,7 @@ def _subst_credential(segs: list[tuple[str, list[str]]], idx: int) -> bool:
     sep, prev = segs[idx][0], (segs[idx - 1][1] if idx > 0 else [])
     if not _opens_subst(segs, idx):
         return False
-    outer = strip_wrappers(prev)
-    if not outer or cmd_name(outer[0]) not in SUBST_READERS:
+    if not any(o and cmd_name(o[0]) in SUBST_READERS for o in cores(prev)):
         return False
     depth = 0
     for j in range(idx, len(segs)):
@@ -975,29 +1368,40 @@ def _subst_credential(segs: list[tuple[str, list[str]]], idx: int) -> bool:
 def _check_tokens(tokens: list[str], depth: int, sensitive: bool) -> str | None:
     state = _State(depth=depth, sensitive=sensitive)
     segs = segments(tokens)
-    prev_name, pipe_source = "", False
+    prev_names: set[str] = set()
+    pipe_source = False
     for idx, (sep, words) in enumerate(segs):
-        core = strip_wrappers(words)
-        name = cmd_name(core[0]) if core else ""
-        if sep in ("$(", "`") and idx > 0 and not strip_wrappers(segs[idx - 1][1]):
+        readings = cores(words)
+        core = readings[0]
+        if sep in ("$(", "`") and idx > 0 and any(not c for c in cores(segs[idx - 1][1])):
             return "computed-command-name"
-        if (
-            sep in ("$(", "<(", "`")
-            and name in DOWNLOADERS
-            and (is_interpreter(prev_name) or prev_name in ("eval", "source", "."))
-        ):
-            return "interpreter-on-download"
+        clobber = sep == "|" and idx > 0 and segs[idx - 1][1][-1:] == [">"] and bool(words)
+        if clobber and _device_word(words[0], state):  # `>| dev`: the lexer splits it (RA2-09)
+            return "redirect-raw-disk"
+        names = {cmd_name(c[0]) if c else "" for c in readings}
+        for name in names:
+            if (
+                sep in ("$(", "<(", "`")
+                and name in DOWNLOADERS
+                and (
+                    any(is_interpreter(p) for p in prev_names)
+                    or prev_names & {"eval", "source", "."}
+                )
+            ):
+                return "interpreter-on-download"
         if sep in ("|", "|&"):
-            json_tool = PY_RE.fullmatch(name) is not None and core[1:3] == ["-m", "json.tool"]
-            if is_interpreter(name) and pipe_source and not json_tool:
-                return "pipe-to-interpreter"
+            for c in readings:
+                name = cmd_name(c[0]) if c else ""
+                json_tool = PY_RE.fullmatch(name) is not None and c[1:3] == ["-m", "json.tool"]
+                if is_interpreter(name) and pipe_source and not json_tool:
+                    return "pipe-to-interpreter"
         elif sep not in ("", "$(", "<(", "`", "("):
             pipe_source = False
-        if name in DOWNLOADERS or name in DECODERS:
+        if names & DOWNLOADERS or names & DECODERS:
             pipe_source = True
         if (
             sensitive
-            and name in ("cd", "pushd")
+            and names & {"cd", "pushd"}
             and idx + 1 < len(segs)
             and _opens_subst(segs, idx + 1)
         ):
@@ -1008,7 +1412,7 @@ def _check_tokens(tokens: list[str], depth: int, sensitive: bool) -> str | None:
         if sensitive and _subst_credential(segs, idx):
             return "unscannable-path"
         if core:
-            prev_name = name
+            prev_names = {n for n in names if n} or prev_names
     return None
 
 
@@ -1124,9 +1528,11 @@ def _names(command: str) -> list[str]:
         return []
     names: list[str] = []
     for _sep, words in segments(streams[0]):
-        core = strip_wrappers(words)
-        if core:
-            names.append(core[0] if core[0].startswith(("$", "`")) else cmd_name(core[0]))
+        for core in cores(words):  # the d5dd3fb reading too, so no name it saw is missed
+            if core:
+                n = core[0] if core[0].startswith(("$", "`")) else cmd_name(core[0])
+                if n not in names:
+                    names.append(n)
     return names
 
 
@@ -1146,6 +1552,10 @@ def check_command(
         return _denial(rule)
     if policy.mode != "allowlist":
         return None
+    if "$(" in command or "`" in command:
+        # RA2-07: a substitution inside quotes is one word, so the commands it runs are never
+        # named; refuse every substitution rather than guess which ones run
+        return _denial("substitution-not-allowlisted")
     try:
         names = command_names(command)
     except Exception:  # noqa: BLE001 - fail closed
@@ -1169,11 +1579,14 @@ def _check_value(value: Any, policy: CommandPolicy) -> str | None:
 
 
 def _path_rule(value: Any, scan: _sp.Scan) -> str | None:
-    """Rule for a path-key value: a str, or each str of a list/tuple. Memoised per call."""
-    for v in (
-        [value] if isinstance(value, str) else value if isinstance(value, (list, tuple)) else []
-    ):
-        if isinstance(v, str):
+    """Rule for a path-key value: a str, or each str of a list/tuple (nested ones too).
+    Memoised per call."""
+    todo: list[Any] = [value]
+    while todo:
+        v = todo.pop()
+        if isinstance(v, (list, tuple)):
+            todo.extend(v)
+        elif isinstance(v, str):
             if v not in scan.path:
                 scan.path[v] = _sp.sensitive_rule(v, resolve=True, max_chars=_sp.PATH_MAX_CHARS)
             if scan.path[v] is not None:
@@ -1197,7 +1610,7 @@ def _guard(call: ToolCall, policy: CommandPolicy) -> str | None:
                             if denial is not None:
                                 return denial
                             continue
-                        if name in PATH_ARG_KEYS:
+                        if name in PATH_ARG_KEYS or name.endswith(PATH_KEY_SUFFIXES):
                             rule = _path_rule(val, scan)
                             if rule is not None:
                                 return _denial(rule)
