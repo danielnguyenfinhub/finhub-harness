@@ -292,6 +292,58 @@ def test_the_shell_runs_the_command_inside_the_group(tpl: str, shell: str, tmp_p
     assert "hi" in out
 
 
+# --- (4) a wildcard that matches only part of a credential path ----------------------------------
+
+PART_GLOBS = [
+    ".ss?/id_r*", ".s*h/id_*", ".s[a-z][a-z]/id_r[a-z]a", ".{s,}sh/id_rsa", ".aw?/cred*",
+    ".config/g?/hosts.y*", ".conf*/gh/h*", ".[a-c]*/c*", ".ssh/id_r*", ".ssh/*", ".ss[h]/id_rsa",
+    ".?sh/id_?sa", ".config/gc*/*", ".*/id_rsa", ".s*/known_*",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("glob", PART_GLOBS)
+def test_a_wildcard_naming_part_of_a_credential_path_is_refused(glob: str, home: Path) -> None:
+    out = shell_prints("bash", f"echo ~/{glob}", home)
+    assert out, glob  # bash expands it to real paths in the dummy HOME
+    assert any(sp_hit(p) for p in out.split()), (glob, out)
+    for cmd in (f"cat ~/{glob}", f"cp ~/{glob} /tmp/x", f"echo ~/{glob}"):
+        assert denied(cmd), cmd
+    assert denied(f"cd ~ && cat {glob}")
+    assert denied(f"D=~; cat $D/{glob}")
+    assert denied(f"cat {home}/{glob}")
+
+
+def sp_hit(path: str) -> bool:
+    from master_finhub.tools import sensitive_paths as sp
+
+    return sp.is_sensitive_path(path)
+
+
+@pytest.mark.parametrize("glob", PART_GLOBS[:8])
+def test_the_same_wildcards_are_refused_where_the_directory_does_not_exist(
+    glob: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("HOME", str(empty))
+    assert denied(f"cat ~/{glob}") or glob.startswith((".[a-c]", ".config/g?", ".conf*")), glob
+
+
+def test_a_wildcard_that_cannot_reach_a_credential_stays_allowed() -> None:
+    assert not denied("cat ~/pro*/a.txt")
+    assert not denied("cat ~/n*.txt")
+    assert not denied("ls ~/.bashrc*")
+
+
+def test_cat_of_home_star_does_not_read_dotfiles_in_a_real_shell(home: Path) -> None:
+    """`cat ~/*` is not a whole-home read: the star never matches a leading dot (bash and dash)."""
+    for shell in ("bash", "dash"):
+        out = shell_prints(shell, "echo ~/*", home)
+        if out is not None:
+            assert ".ssh" not in out and ".aws" not in out
+    assert not denied("cat ~/*")
+
+
 # --- known residuals that stay documented (R1-R7 of the 2026-10-21 row, unchanged) --------------
 
 
