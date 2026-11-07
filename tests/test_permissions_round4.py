@@ -67,16 +67,14 @@ def _build(tmp: Path, state: str) -> Path:
     # untracked helpers, made after the commit
     (root / "a.diff").write_text(PATCH)
     (root / "g.diff").write_text(GIT_PATCH)
-    subprocess.run(
-        ["tar", "-cf", "a.tar", "-C", "sub", "settings.json"], cwd=root, check=True
-    )
+    subprocess.run(["tar", "-cf", "a.tar", "-C", "sub", "settings.json"], cwd=root, check=True)
     subprocess.run(["tar", "-cf", "g.tar", "-C", "sub", "config"], cwd=root, check=True)
     subprocess.run(["zip", "-q", "a.zip", "settings.json"], cwd=root / "sub", check=True)
     shutil.move(str(root / "sub" / "a.zip"), root / "a.zip")
     subprocess.run(["zip", "-q", "g.zip", "config"], cwd=root / "sub", check=True)
     shutil.move(str(root / "sub" / "g.zip"), root / "g.zip")
     gz = root / ".claude" / "settings.json.gz"
-    gz.write_bytes(subprocess.run(["gzip", "-c"], input=b"PWNED\n", capture_output=True).stdout)
+    gz.write_bytes(subprocess.run(["gzip", "-c"], input=b"PWNED\n", capture_output=True, check=False).stdout)
     os.link(root / ".env", root / "h")
     os.link(root / ".claude" / "settings.json", root / ".claude" / "hl")
     os.link(root / "sub" / "x", root / "sub" / "x2")
@@ -111,7 +109,13 @@ def unguarded(root: Path, cmd: str) -> bool:
     env = {"PATH": os.environ["PATH"], "HOME": str(home), **GIT_ENV}
     before = snapshot(root)
     subprocess.run(
-        ["bash", "-c", cmd], cwd=root, env=env, timeout=30, capture_output=True, stdin=subprocess.DEVNULL
+        ["bash", "-c", cmd],
+        cwd=root,
+        env=env,
+        timeout=30,
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        check=False,
     )
     return snapshot(root) != before
 
@@ -161,9 +165,7 @@ CWD_WRITERS = [
 
 
 @pytest.mark.parametrize("cmd", CWD_WRITERS)
-def test_writer_into_a_protected_cwd_is_refused_and_is_a_real_bypass(
-    lab: Path, cmd: str
-) -> None:
+def test_writer_into_a_protected_cwd_is_refused_and_is_a_real_bypass(lab: Path, cmd: str) -> None:
     check_bypass(lab, cmd, None if ".git" in cmd else "current directory")
 
 
@@ -196,6 +198,7 @@ DIR_DESTINATIONS = [  # the file name comes from the source, the destination is 
     "ln -sf ../sub/settings.json .claude/",
     "cp -a sub/config .git/",
     "cd .git && cp ../sub/config .",
+    "cd .claude && ln -sf ../sub/settings.json",
 ]
 
 
@@ -255,6 +258,8 @@ GIT_OVERWRITE = [
     "git restore .",
     "git restore --worktree .",
     "git restore -W .claude",
+    "git restore --staged --worktree .",
+    "git restore -SW .",
     "git restore --source=HEAD .",
     "git restore -s HEAD .",
     "git restore --source HEAD .",
@@ -429,9 +434,7 @@ LINK_BENIGN = [
 
 
 @pytest.mark.parametrize("cmd", LINK_BENIGN)
-def test_symlinks_to_ordinary_directories_and_plain_reads_stay_allowed(
-    lab: Path, cmd: str
-) -> None:
+def test_symlinks_to_ordinary_directories_and_plain_reads_stay_allowed(lab: Path, cmd: str) -> None:
     assert verdict(lab, cmd) is None, cmd
 
 
@@ -445,7 +448,8 @@ def test_a_link_to_a_protected_directory_is_followed_in_a_later_command(lab: Pat
 FUNCTION_CD = [  # the definition moves the guard's tracked directory, the call moves bash's
     "cd sub; f() if cd ../.claude; then :; fi; cd ../sub; f; echo x > settings.json",
     "cd sub; f() while cd ../.claude; do break; done; cd ../sub; f; echo x > settings.json",
-    "cd sub; f() if pushd ../.claude >/dev/null; then :; fi; cd ../sub; f; echo x > settings.json",
+    "pushd sub >/dev/null; f() if pushd ../.claude >/dev/null; then :; fi; "
+    "pushd ../sub >/dev/null; f; echo x > settings.json",
     "cd sub; function f if cd ../.claude; then :; fi; cd ../sub; f; echo x > settings.json",
     "cd sub; f () if cd ../.claude; then :; fi; cd ../sub; f; tar -xf ../a.tar",
 ]
@@ -460,7 +464,8 @@ def test_defining_a_function_that_changes_directory_is_refused_and_is_real(
 
 def test_a_function_with_cd_in_a_nested_shell_body_is_refused(lab: Path) -> None:
     msg = verdict(
-        lab, "bash -c 'cd sub; f() if cd ../.claude; then :; fi; cd ../sub; f; echo x > settings.json'"
+        lab,
+        "bash -c 'cd sub; f() if cd ../.claude; then :; fi; cd ../sub; f; echo x > settings.json'",
     )
     assert msg is not None
 
@@ -497,6 +502,7 @@ def _baseline():  # type: ignore[no-untyped-def]
         cwd=here,
         capture_output=True,
         text=True,
+        check=False,
     )
     if done.returncode != 0:
         pytest.skip(f"base commit {BASE_SHA} is not in this clone")
@@ -522,7 +528,7 @@ def _round3_commands() -> list[str]:
 
 
 def _generated(n: int) -> list[str]:
-    rnd = random.Random(4)  # noqa: S311
+    rnd = random.Random(4)
     heads = [
         "cd", "tar -xf", "tar -tf", "unzip", "patch", "git checkout", "git restore", "git reset",
         "git stash", "cp", "mv", "ln -s", "tee", "touch", "cat", "ls", "rm", "echo y >", "sed -i s/a/b/",
@@ -537,7 +543,9 @@ def _generated(n: int) -> list[str]:
     for _ in range(n):
         parts = []
         for _ in range(rnd.randint(1, 3)):
-            parts.append(rnd.choice(heads) + " " + " ".join(rnd.choices(words, k=rnd.randint(0, 3))))
+            parts.append(
+                rnd.choice(heads) + " " + " ".join(rnd.choices(words, k=rnd.randint(0, 3)))
+            )
         out.append(rnd.choice(joins).join(parts))
     return out
 

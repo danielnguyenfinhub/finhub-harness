@@ -1393,7 +1393,8 @@ class _Run:
 
     def git_worktree_denial(self, sub: str, args: list[_Word], gcwd: Cwd) -> str | None:
         """git commands that rewrite tracked files of the working tree: they can overwrite or
-        delete a protected file that git tracks (``.claude/settings.json``, a committed ``.env``)."""
+        delete a protected file that git tracks (``.claude/settings.json``, a committed ``.env``).
+        """
         texts = [w.text for w in args]
         short = _short_letters(texts)
         if gcwd is None:
