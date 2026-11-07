@@ -13,7 +13,7 @@ import secrets
 import sys
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Final
 
@@ -39,7 +39,8 @@ from master_finhub.server.sse import (
     event_stream,
 )
 from master_finhub.tools.builtins.echo import EchoTool
-from master_finhub.tools.safety import guard_tool_call
+from master_finhub.tools.guard_factory import DEFAULT_TOOL_CLASSES, MODES, build_guard
+from master_finhub.tools.permissions import DEFAULT_MODE, Mode, ToolClass
 
 SESSION_HEADER: Final = "X-Session-API-Key"
 MAX_BODY_BYTES: Final = 64 * 1024
@@ -323,6 +324,8 @@ def make_server(
     port: int = 0,
     allow_remote: bool = False,
     extra_guard: ToolGuard | None = None,
+    mode: Mode = DEFAULT_MODE,
+    tool_classes: Mapping[str, ToolClass] | None = None,
     max_steps: int = DEFAULT_MAX_STEPS,
     context_factory: Callable[[], ContextPolicy] = ContextManager,
     idle_timeout_s: float = IDLE_TIMEOUT_S,
@@ -336,7 +339,9 @@ def make_server(
             "Runs execute tools on this machine. "
             "Bind 127.0.0.1, or pass allow_remote=True if you mean it."
         )
-    guard = guard_tool_call if extra_guard is None else _both(guard_tool_call, extra_guard)
+    # The base command guard runs first inside the mode guard; the extra guard only adds denials.
+    base = build_guard(mode, tool_classes)
+    guard = base if extra_guard is None else _both(base, extra_guard)
     timing = (idle_timeout_s, ping_interval_s, poll_s)
     return RunServer(
         (host, port),
@@ -355,6 +360,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="master_finhub.server.app")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--profile", default=None, help="Model profile; omit for the scripted LLM.")
+    parser.add_argument(
+        "--mode",
+        choices=MODES,
+        default=DEFAULT_MODE,
+        help=f"Permission mode for every run's tool calls (default {DEFAULT_MODE}).",
+    )
     args = parser.parse_args(argv)
     factory: LLMFactory = ScriptedLLM
     if args.profile is not None:
@@ -362,7 +373,13 @@ def main(argv: list[str] | None = None) -> int:
 
         profile = str(args.profile)
         factory = lambda: Router().build_llm(profile)
-    server = make_server(factory, lambda: [EchoTool()], port=args.port)
+    server = make_server(
+        factory,
+        lambda: [EchoTool()],
+        port=args.port,
+        mode=args.mode,
+        tool_classes=DEFAULT_TOOL_CLASSES,
+    )
     print(f"serving on http://127.0.0.1:{server.server_address[1]}", file=sys.stderr)
     print(f"{SESSION_HEADER}: {server.session_key}", file=sys.stderr)
     try:

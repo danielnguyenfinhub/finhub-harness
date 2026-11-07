@@ -8,7 +8,7 @@ from master_finhub import cli
 from master_finhub.orchestration.dag_engine import CheckpointStore
 from master_finhub.runtime.loop import ToolCall
 from master_finhub.sandbox.workspace import WORKSPACE_ENV_VAR, Workspace
-from master_finhub.tools import permissions
+from master_finhub.tools import guard_factory, permissions
 
 MODES = ["read-only", "workspace-write", "full-access"]
 
@@ -42,7 +42,7 @@ def test_default_mode_is_workspace_write_and_guard_is_the_mode_guard(
         seen.append((mode, dict(tool_classes or {})))
         return real(mode, workspace, tool_classes=tool_classes, protected=protected)
 
-    monkeypatch.setattr(cli, "effective_guard", spy)
+    monkeypatch.setattr(guard_factory, "effective_guard", spy)
     assert cli.main(["echo hi"]) == 0
     assert seen == [("workspace-write", {"echo": "read"})]
 
