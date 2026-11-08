@@ -34,7 +34,8 @@ def test_readme_says_which_guards_are_wired() -> None:
     assert "register only `EchoTool`" in README
     assert "The command guard, workspace fence and checkpoints are wired" in README
     assert "`--mode read-only|workspace-write|full-access`" in README
-    assert "Docker engine and MCP client are libraries that no shipped" in README
+    assert "the Docker engine is a library that no shipped" in README
+    assert "`--mcp-config`" in README
 
 
 def test_unit_tracker_doc_says_a_dead_unit_is_not_claimable_or_writable() -> None:

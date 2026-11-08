@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 
 from master_finhub.orchestration.dag_engine import (
@@ -20,6 +21,7 @@ from master_finhub.runtime.loop import (
     AgentLoopError,
     LoopSnapshot,
     ResumeBlocked,
+    Tool,
     ToolGuard,
 )
 from master_finhub.runtime.router import Router, RouterConfigError
@@ -27,6 +29,8 @@ from master_finhub.sandbox.workspace import WORKSPACE_ENV_VAR, Workspace
 from master_finhub.tools import guard_factory
 from master_finhub.tools.builtins.echo import EchoTool
 from master_finhub.tools.guard_factory import DEFAULT_TOOL_CLASSES, MODES
+from master_finhub.tools.mcp.client import McpError
+from master_finhub.tools.mcp.loader import McpConfigError, open_mcp
 from master_finhub.tools.permissions import DEFAULT_MODE, Mode, ToolClass
 
 SCRIPTED_PROFILE = "scripted"
@@ -52,12 +56,31 @@ def main(argv: list[str] | None = None) -> int:
             "A resumed run keeps its saved mode and cannot be widened."
         ),
     )
+    parser.add_argument(
+        "--mcp-config",
+        metavar="FILE",
+        default=None,
+        help=(
+            "JSON file naming the MCP servers to start. A tool is read-only for the mode guard "
+            "only if the file lists it in trusted_read_only; a new or changed tool is "
+            "quarantined until the file enables it."
+        ),
+    )
+    parser.add_argument(
+        "--mcp-approvals",
+        metavar="DIR",
+        default=None,
+        help="Where approved tool digests are kept (default: FILE.approvals next to --mcp-config).",
+    )
     saving = parser.add_mutually_exclusive_group()
     saving.add_argument("--run-id", metavar="NAME", help="Save every step of this run under NAME.")
     saving.add_argument(
         "--resume", metavar="NAME", help="Continue the saved run NAME from its last step."
     )
     args = parser.parse_args(argv)
+    if args.mcp_approvals is not None and args.mcp_config is None:
+        parser.error("--mcp-approvals needs --mcp-config")
+    mcp = None if args.mcp_config is None else (args.mcp_config, args.mcp_approvals)
     if args.resume is not None:
         if args.prompt is not None:
             print("--resume takes no prompt: the saved run already has one.", file=sys.stderr)
@@ -78,16 +101,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.resume is not None:
             assert store is not None
-            return _resume(store, args.resume, args.profile, args.mode)
-        return _start(str(args.prompt), args.profile, store, args.run_id, args.mode or DEFAULT_MODE)
+            return _resume(store, args.resume, args.profile, args.mode, mcp)
+        return _start(
+            str(args.prompt), args.profile, store, args.run_id, args.mode or DEFAULT_MODE, mcp
+        )
     except CheckpointError as exc:
         print(exc, file=sys.stderr)
         return 1
 
 
-def build_guard(mode: Mode) -> ToolGuard:
+McpArgs = tuple[str, str | None]  # (--mcp-config, --mcp-approvals)
+
+
+def build_guard(mode: Mode, extra_classes: dict[str, ToolClass] | None = None) -> ToolGuard:
     """The base command guard first, then the mode guard; both judge every tool call."""
-    return guard_factory.build_guard(mode, TOOL_CLASSES)
+    return guard_factory.build_guard(mode, {**TOOL_CLASSES, **(extra_classes or {})})
 
 
 def _build_llm(profile: str | None) -> LLM:
@@ -100,6 +128,7 @@ def _start(
     store: CheckpointStore | None,
     run_id: str | None,
     mode: Mode,
+    mcp: McpArgs | None = None,
 ) -> int:
     if profile is not None:
         try:
@@ -119,14 +148,18 @@ def _start(
     else:
         llm = ScriptedLLM()
     if store is None or run_id is None:
-        return _run(llm, prompt, mode=mode)
+        return _run(llm, prompt, mode=mode, mcp=mcp)
     writer = store.create_run(run_id, meta={"profile": profile or SCRIPTED_PROFILE, "mode": mode})
     print(f'Saving this run as "{validate_run_id(run_id)}".', file=sys.stderr)
-    return _run(llm, prompt, writer, mode=mode)
+    return _run(llm, prompt, writer, mode=mode, mcp=mcp)
 
 
 def _resume(
-    store: CheckpointStore, run_id: str, profile: str | None, requested_mode: Mode | None
+    store: CheckpointStore,
+    run_id: str,
+    profile: str | None,
+    requested_mode: Mode | None,
+    mcp: McpArgs | None = None,
 ) -> int:
     checkpoint, writer = store.resume_run(run_id)
     saved_mode = checkpoint.meta.get("mode", DEFAULT_MODE)
@@ -152,7 +185,7 @@ def _resume(
         writer.close()
         print(exc, file=sys.stderr)
         return 2
-    return _run(llm, None, writer, checkpoint.snapshot, mode=saved_mode)
+    return _run(llm, None, writer, checkpoint.snapshot, mode=saved_mode, mcp=mcp)
 
 
 def _run(
@@ -162,12 +195,29 @@ def _run(
     resume_from: LoopSnapshot | None = None,
     *,
     mode: Mode = DEFAULT_MODE,
+    mcp: McpArgs | None = None,
 ) -> int:
     try:
-        loop = AgentLoop(
-            llm, [EchoTool()], context=ContextManager(), guard=build_guard(mode), checkpoint=writer
-        )
-        print(loop.run(prompt or "") if resume_from is None else loop.resume(resume_from))
+        with contextlib.ExitStack() as stack:
+            tools: list[Tool] = [EchoTool()]
+            guard = build_guard(mode)
+            if mcp is not None:
+                bundle = stack.enter_context(open_mcp(*mcp))
+                tools += bundle.tools
+                guard = build_guard(mode, bundle.tool_classes)
+                for name in bundle.quarantined:
+                    print(
+                        f"MCP tool {name} is quarantined until the config enables it.",
+                        file=sys.stderr,
+                    )
+            loop = AgentLoop(llm, tools, context=ContextManager(), guard=guard, checkpoint=writer)
+            print(loop.run(prompt or "") if resume_from is None else loop.resume(resume_from))
+    except McpConfigError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    except McpError as exc:
+        print(f"MCP server failed: {exc}", file=sys.stderr)
+        return 1
     except (CheckpointError, ResumeBlocked) as exc:  # before AgentLoopError: no prefix
         print(exc, file=sys.stderr)
         return 1

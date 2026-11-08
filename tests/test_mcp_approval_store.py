@@ -252,8 +252,8 @@ def test_save_without_a_listing_to_trust_does_not_invent_approvals(path: Path) -
     assert json.loads(path.read_text())["digests"] == {}
 
 
-def test_nothing_imports_the_store_outside_its_module() -> None:
-    """Not wired into any entrypoint."""
+def test_only_the_loader_uses_the_store_and_entrypoints_go_through_it() -> None:
+    """One wiring point: tools/mcp/loader.py. The CLI reaches the store only through it."""
     import subprocess
 
     src = Path(__file__).resolve().parent.parent / "src"
@@ -263,4 +263,4 @@ def test_nothing_imports_the_store_outside_its_module() -> None:
         text=True,
         check=False,
     ).stdout.split()
-    assert [Path(p).name for p in out] == ["client.py"]
+    assert sorted(Path(p).name for p in out) == ["client.py", "loader.py"]

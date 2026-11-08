@@ -593,6 +593,11 @@ class McpTool:
     def quarantined(self) -> bool:
         return self._quarantine is not None
 
+    @property
+    def tool_name(self) -> str:
+        """The server's own name for the tool (the public name adds the server and a digest)."""
+        return self._info.name
+
     def run(self, arguments: dict[str, Any]) -> str:
         if self._quarantine is not None:
             raise McpToolError(self._quarantine)

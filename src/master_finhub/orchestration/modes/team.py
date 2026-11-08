@@ -36,10 +36,12 @@ from master_finhub.orchestration.message_bus import (
 from master_finhub.orchestration.modes.subagent import (
     _BUDGET,
     MAX_AGENT_THREADS,
+    _both,
     _Scope,
     _set_scope,
     _strip_delegate,
     error_label,
+    mode_guard,
     release_quietly,
 )
 from master_finhub.orchestration.modes.task_board import TaskBoard, TaskSpec, TaskStatus
@@ -58,6 +60,7 @@ from master_finhub.runtime.loop import (
     ToolGuard,
 )
 from master_finhub.runtime.router import Router
+from master_finhub.tools.permissions import Mode, ToolClass
 from master_finhub.tools.safety import guard_tool_call
 
 __all__ = [
@@ -565,6 +568,8 @@ def run_team(
     limits: TeamLimits = DEFAULT_TEAM_LIMITS,
     llm_for: Callable[[Persona], LLM] | None = None,
     guard: ToolGuard = guard_tool_call,
+    mode: Mode | None = None,
+    tool_classes: Mapping[str, ToolClass] | None = None,
     observer: Callable[[TeamEvent], None] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> TeamResult:
@@ -573,6 +578,8 @@ def run_team(
     Not resumable: if the process dies the run is lost, and tools that already acted may act again.
     """
     _check_limits(limits)
+    if mode is not None:  # opt-in: the mode guard runs first, ``guard`` only adds denials
+        guard = _both(mode_guard(mode, tool_classes), guard)
     if not tasks:
         raise _bad(
             "The team has no tasks.",

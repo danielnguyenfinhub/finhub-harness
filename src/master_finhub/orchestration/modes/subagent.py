@@ -41,6 +41,8 @@ from master_finhub.runtime.loop import (
     ToolSpec,
 )
 from master_finhub.runtime.router import Router
+from master_finhub.tools.guard_factory import build_guard
+from master_finhub.tools.permissions import Mode, ToolClass
 from master_finhub.tools.safety import guard_tool_call
 
 __all__ = [
@@ -231,6 +233,10 @@ class SubagentConfig:
     llm_for: Callable[[SubTask], LLM] | None = None  # default: Router().build_llm(...)
     tools_for: Callable[[SubTask], Sequence[Tool]] = _no_tools
     guard: ToolGuard = guard_tool_call  # at the root this IS the guard; under a scope it is ADDED
+    # Opt-in permission mode: when set, the mode guard (via guard_factory) runs first and ``guard``
+    # still only adds denials. None keeps the command guard alone, as before.
+    mode: Mode | None = None
+    tool_classes: Mapping[str, ToolClass] | None = None  # the engine's own tools are added
     max_steps: int = 20
     max_depth: int = 2  # 1..3; under a scope the effective cap is min(scope.max_depth, max_depth)
     max_result_bytes: int = 65_536  # JSON-encoded bytes per child output
@@ -238,6 +244,20 @@ class SubagentConfig:
 
 
 DEFAULT_CONFIG: Final = SubagentConfig()
+
+# The engine's own tools touch no file and run no command (a child's tools are judged by the
+# child's guard, which is never weaker than the parent's), so a mode guard must not refuse them.
+ENGINE_TOOL_CLASSES: Final[Mapping[str, ToolClass]] = {
+    "delegate": "read",
+    "complete_task": "read",
+    "fail_task": "read",
+    "send_message": "read",
+}
+
+
+def mode_guard(mode: Mode, tool_classes: Mapping[str, ToolClass] | None) -> ToolGuard:
+    """The mode guard for an orchestration run: the caller's classes plus the engine's own."""
+    return build_guard(mode, {**ENGINE_TOOL_CLASSES, **(tool_classes or {})})
 
 
 def _refuse(what: str, why: str, fix: str) -> SubagentError:
@@ -394,7 +414,10 @@ def dispatch(
     scope = _scope()
     depth = 0 if scope is None else scope.depth
     cap = config.max_depth if scope is None else min(scope.max_depth, config.max_depth)
-    guard = config.guard if scope is None else _both(scope.guard, config.guard)
+    own = config.guard
+    if config.mode is not None:
+        own = _both(mode_guard(config.mode, config.tool_classes), own)
+    guard = own if scope is None else _both(scope.guard, own)
     _check_config(config, tasks)
     if depth >= cap:
         raise _refuse(
