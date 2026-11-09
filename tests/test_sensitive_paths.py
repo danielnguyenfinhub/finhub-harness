@@ -390,7 +390,7 @@ def test_command_scan_cost(name: str, build: Callable[[], str], expect: str | No
     for _ in range(7):
         on.append(timed(lambda: check_rule(v))[1])
         off.append(timed(lambda: check_rule(v, sensitive_paths=False))[1])
-    assert min(on) - min(off) < 0.1
+    assert min(on) - min(off) < 0.2  # a quadratic scan costs seconds; CI runs ~1.8x slower
     # (iii) single level
     if not v.startswith(("bash", "eval")):
         assert min(on) < 0.25
