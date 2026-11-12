@@ -5,7 +5,7 @@ description: "Low-token finhub-harness: builds a small agent team or one skill i
 
 # FinHub Harness Light
 
-Build the smallest harness that does the job and spend as few tokens as possible doing it. Read only what you need, write short files, and ask nothing you can default, except under Outside effects. This skill is self-contained: it reads no other file.
+Build the smallest harness that does the job, in as few tokens as possible. Read only what you need, write short files, and ask nothing you can default, except under Outside effects. It reads no other file.
 
 ## When light fits
 
@@ -16,7 +16,7 @@ Build the smallest harness that does the job and spend as few tokens as possible
 ## Three levels
 
 The owner sets the level for each kind of work; you never pick or change it.
-- **light**: what this skill builds. The work is checked with the real tests and lint; no judge, no QA agent. The default for small jobs.
+- **light**: what this skill builds. Checked with the real tests and lint; no judge, no QA agent. The default.
 - **standard**: one judge round, then one QA run on the real gates, no mutation tests unless the owner asks.
 - **full** (`gated`): every judge round and QA check. Money, eligibility, compliance and client-facing text stay full unless the owner downgrades them through a ledger row.
 For standard or full, say so and use the full skill `finhub-harness`.
@@ -29,6 +29,7 @@ If the job can send, write a record, publish, share or pay, ask the owner once: 
 
 1. **Look cheaply.** List `.claude/agents` and `.claude/skills` and print only the `name:` lines (`ls`, `grep -m1 '^name:'`). Read a file only to extend it, and then only the lines you need. If something already covers the job, extend it; never add a second.
 2. **Choose the shape.** The default is one skill, no agent file, and the main context does the work. Add a worker only when it needs different tools or a clean context and its job can be handed over as a file path. Never more than two. Having an `Agent` tool is not a reason to delegate: every worker spends tokens of its own.
+2a. **Reuse.** Assign a listed skill that fits to each worker by name (add `Skill` to its `tools:`); write one only if none does.
 3. **Write the files.**
    - Skill: `.claude/skills/{name}/SKILL.md`, under 120 lines. `description` says what it does and when to use it, including follow-ups such as "re-run" and "redo only X", in 600 characters or fewer, because every description sits in context all session. The body gives each rule with its reason, in the imperative.
    - Worker, only if step 2 allowed one: `.claude/agents/{name}.md` with `name`, `description`, `tools` (only what it needs; a read-only reviewer gets no Edit or Write), `model` with a `# reason` comment, `maxTurns`, and `effort: low` for look-up and format jobs.
