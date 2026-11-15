@@ -1,4 +1,0 @@
-PAYSLIP (made-up) — ACME PTY LTD — Sample Client A
-Pay date 15 Sep 2026 | period 01 Sep to 30 Sep 2026 | gross 8,200.00 | tax 2,050.00 | net 6,150.00 | YTD gross 24,600.00
-PAYSLIP (made-up) — ACME PTY LTD — Sample Client A
-Pay date 15 Oct 2026 | period 01 Oct to 31 Oct 2026 | gross 8,200.00 | tax 1,950.00 | net 6,250.00 | YTD gross 32,800.00
