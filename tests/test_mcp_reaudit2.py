@@ -272,8 +272,29 @@ def _alive(pid: int) -> bool:
         return False
     try:  # a zombie of ours still answers kill(0)
         return Path(f"/proc/{pid}/stat").read_text().split(")")[-1].split()[0] != "Z"
+    except (FileNotFoundError, ProcessLookupError):
+        return False  # a zombie that was reaped between kill(0) and this read: it is gone
     except OSError:
         return True
+
+
+def test_alive_says_gone_when_the_process_is_reaped_between_the_two_checks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CI failure 'grandchild outlived close()': kill(0) saw a zombie, then /proc/<pid> vanished."""
+    monkeypatch.setattr(os, "kill", lambda pid, sig: None)  # the pid still answers
+
+    def gone(self: Path, *a: object, **k: object) -> str:
+        raise FileNotFoundError(str(self))
+
+    monkeypatch.setattr(Path, "read_text", gone)
+    assert _alive(424242) is False
+
+    def denied(self: Path, *a: object, **k: object) -> str:
+        raise PermissionError(str(self))
+
+    monkeypatch.setattr(Path, "read_text", denied)
+    assert _alive(424242) is True  # no proof it is gone, so it still counts as alive
 
 
 @pytest.mark.skipif(not hasattr(os, "killpg"), reason="POSIX process groups")
