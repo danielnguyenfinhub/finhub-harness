@@ -70,7 +70,7 @@ Run the CLI with `master-finhub` (entry point `master_finhub.cli:main`). The shi
 
 ## Reference repos and licences
 
-Fourteen reference harnesses are pinned as read-only submodules under `references/` (`git submodule update --init --depth 1` to fetch them). Port patterns, do not copy files, unless the row allows it. `references/LICENSES.md` is the source of truth.
+Fifteen reference harnesses are pinned as read-only submodules under `references/` (`git submodule update --init --depth 1` to fetch them). Port patterns, do not copy files, unless the row allows it. `references/LICENSES.md` is the source of truth.
 
 | Submodule | Licence | Rule |
 | --- | --- | --- |
@@ -85,8 +85,8 @@ Notes: `openhands` is a UI-only fork with no agent runtime. The `openharness` up
 
 - **Claude chat and Cowork:** whether sub-agents, messaging or file writing work there is unverified. The factory plans single-context execution on both until you confirm. The six-probe test script and result sheet are in [`docs/surface-verification.md`](docs/surface-verification.md).
 - **Docker sandbox:** verified 2026-11-05 against a real daemon (Docker 29.9.2, started with `dockerd` as root inside the build sandbox, image `python:3.12-alpine` pulled): `tests/test_docker_engine.py` passes 10 of 10 with `test_echo_in_container` running, not skipped. That test checks echo, a refused write to `/etc` and a refused network call, so it is a smoke test; the hardening flags are proven by the argv tests only. The test still skips where no daemon or image exists, so CI without Docker does not run it.
-- **Plugin install flow:** run twice on 2026-11-05 with the non-interactive `claude plugin` commands (see Install): first against the earlier `main`, then again after the Phase 2 to 5 merge, where the installed tree held all 14 port maps and the `standard` rigor text. Not run: the interactive `/plugin` commands, a headless skill-trigger run on the merged `main`, and anything on Cowork or chat. The install is about 1.4 GB because `references/` is copied.
-- **Migrated build orchestrator:** run end to end on 2026-11-05 in the full lane for the `standard` rigor unit: a named strategy-architect, fresh-context judge per round (2 rounds), `SendMessage` revision, a builder, then QA (one FAIL, kept as `_r1`, then PASS) and the commit gates. The unit ran through the v2 tools; the mining and capability-ranking phases (1 and 1b) were also run as fourteen parallel miners plus the scout. Not re-run: the runtime-slice path (`slice N`), which this run did not touch.
+- **Plugin install flow:** run twice on 2026-11-05 with the non-interactive `claude plugin` commands (see Install): first against the earlier `main`, then again after the Phase 2 to 5 merge, where the installed tree held every port map (14 at that date) and the `standard` rigor text. Not run: the interactive `/plugin` commands, a headless skill-trigger run on the merged `main`, and anything on Cowork or chat. The install is about 1.4 GB because `references/` is copied.
+- **Migrated build orchestrator:** run end to end on 2026-11-05 in the full lane for the `standard` rigor unit: a named strategy-architect, fresh-context judge per round (2 rounds), `SendMessage` revision, a builder, then QA (one FAIL, kept as `_r1`, then PASS) and the commit gates. The unit ran through the v2 tools; the mining and capability-ranking phases (1 and 1b) were also run as fifteen parallel miners plus the scout. Not re-run: the runtime-slice path (`slice N`), which this run did not touch.
 
 ## Quick start
 

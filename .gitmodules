@@ -54,3 +54,7 @@
 	path = references/paperclip
 	url = https://github.com/paperclipai/paperclip
 	shallow = true
+[submodule "references/openworker"]
+	path = references/openworker
+	url = https://github.com/andrewyng/openworker
+	shallow = true

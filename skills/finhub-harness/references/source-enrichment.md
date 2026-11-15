@@ -2,9 +2,9 @@
 
 A new harness gets better when it borrows proven patterns instead of inventing them. Borrowing has two risks: copying something the licence forbids, and citing a pattern that is not actually in the source. This file is the procedure that avoids both. It restates the reference-mining skill (`.claude/skills/reference-mining/SKILL.md`) and its `references/licence-rules.md` and `references/port-map-schema.md`. If this file and `licence-rules.md` ever disagree, `licence-rules.md` wins, and `references/LICENSES.md` at the repo root wins over both.
 
-## 1. The fourteen pinned references
+## 1. The fifteen pinned references
 
-Pinned as read-only submodules under `references/` (see `.gitmodules`; every upstream is a fork under `github.com/danielnguyenfinhub` except `meta_harness`, `openrig`, `hive`, `cowagent`, `repository_harness` and `paperclip`, which pin the upstream repos). Tiers below are taken from `licence-rules.md`.
+Pinned as read-only submodules under `references/` (see `.gitmodules`; every upstream is a fork under `github.com/danielnguyenfinhub` except `meta_harness`, `openrig`, `hive`, `cowagent`, `repository_harness`, `paperclip` and `openworker`, which pin the upstream repos). Tiers below are taken from `licence-rules.md`.
 
 | submodule | upstream | licence | constraint (verbatim) | allowed `port as` |
 |---|---|---|---|---|
@@ -22,6 +22,7 @@ Pinned as read-only submodules under `references/` (see `.gitmodules`; every ups
 | `cowagent` | zhayujie/CowAgent | MIT (`LICENSE`, "Copyright (c) 2022 zhayujie"; no NOTICE file) | Pinned 2026-10-19 at 987a61c. Port map: `references/portmaps/cowagent-987a61c.md` (mined 2026-11-05). Candidate CW2 (evolve-skill rules) approved by Daniel 2026-10-19; CW1 (permission modes) and CW3 (idle trigger) not started. Attribution line required when adapting. | adapt / reference |
 | `repository_harness` | hoangnb24/repository-harness | MIT (`LICENSE`, "Copyright (c) 2025 Hoang Nguyen"; no NOTICE file) | Pinned 2026-10-21 at 485fd40. Port map: `references/portmaps/repository_harness-485fd40.md` (mined 2026-11-05). Candidates noted at pin time (not approved for design): safe updater with three-way merge and a baseline-to-rerun evidence rule. Attribution line required when adapting. | adapt / reference |
 | `paperclip` | paperclipai/paperclip | MIT (`LICENSE`, "Copyright (c) 2025 Paperclip AI"; no NOTICE file) | Pinned 2026-10-21 at 2a5a323. Port map: `references/portmaps/paperclip-2a5a323.md` (mined 2026-11-05). Assessed before the pin as an idea source for atomic task checkout (not approved for design). Attribution line required when adapting. | adapt / reference |
+| `openworker` | andrewyng/openworker | MIT (`LICENSE`, "Copyright (c) 2024 Andrew Ng"; no NOTICE file) | Pinned 2026-11-15 at ecb4454. Port map: not yet mined. Idea source for specialist coworkers (one job, its own tools, skills and instructions); ideas only, fresh text. |
 
 ### The two hard cases
 
