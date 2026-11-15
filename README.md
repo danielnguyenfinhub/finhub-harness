@@ -46,6 +46,8 @@ What FinHub adds on top of the original:
 | **Claude Cowork** | Run `bash scripts/package-plugin.sh`, then add `dist/finhub-harness.plugin` in Cowork's plugin settings | Package builds (script exits 0); loading in Cowork **not tested** |
 | **Claude chat (claude.ai)** | Run `bash scripts/package-plugin.sh`, then upload `dist/finhub-harness-skill.zip`, `dist/finhub-harness-light-skill.zip` and `dist/finhub-harness-evolve-skill.zip` as skills (the light one alone is enough for a small job) | Zips build; upload and behaviour **not tested** |
 
+A harness the skill builds can be installed the same way: Step 6 asks once, and `python3 skills/finhub-harness/scripts/package_harness.py <project>/.claude --name <name>` writes `<name>.plugin` (Cowork; unzipped, a Claude Code plugin directory) and one `<skill>-skill.zip` per skill (chat); `--install-user` copies it into `~/.claude/` for every Claude Code project and never overwrites. Loading in Cowork and chat is **not tested**.
+
 `dist/` is git-ignored, so Cowork and chat users build the files themselves from a clone (needs `bash` and `python3`). The packager validates `plugin.json`, skill frontmatter and a few known-bad patterns before it writes anything.
 
 Fallback if the marketplace route fails (direct skill copy, verified to be discovered by Claude Code 2.1.318; invoking it was not run): `cp -r skills/finhub-harness skills/finhub-harness-light skills/finhub-harness-evolve ~/.claude/skills/`. The skills then appear under their bare names (`finhub-harness`, not `finhub-harness:finhub-harness`). Copy all three together: the full skill's scripts are referenced relative to its own folder.
