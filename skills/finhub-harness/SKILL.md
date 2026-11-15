@@ -186,6 +186,7 @@ Follow `references/skill-testing-guide.md`.
 5. **Dry run**: phase order, hand-off paths, input/output fit, error branches executable.
 6. **Record** one happy-path and at least one error-path scenario under `## Test scenarios` in the orchestrator. A harness with the Ask-first block also records its three cases (no answer, a no, a yes), run against a stub connector that records its calls.
 7. **Rigor table**: put the harness's `## Rigor` table in the report you give the owner, with the class and the level of each scope and who assigned it. It is the owner's answer from build time and nothing compares it with anything (`references/quality-gates.md` section 3-10).
+8. **Install option**: after the lint passes, ask the owner once where the harness should run besides this project, and name the four answers: this project only (the default; `project/.claude/` already works in Claude Code and nothing more is done), every Claude Code project, Claude Cowork, Claude chat. For any answer but the first run `python3 scripts/package_harness.py project/.claude --name <harness-name> --out project/dist` (path relative to this skill's directory): it writes `<harness-name>.plugin` for Cowork's plugin settings (unzipped, it is a Claude Code plugin directory for `claude --plugin-dir`) and one `<skill>-skill.zip` per skill for a chat upload. Add `--install-user` only when the owner chose every Claude Code project: it copies the skills and agents into `~/.claude/`, never overwrites, and copies nothing (exit 4) when a target exists, so show the owner the refused paths and do not delete them yourself. Put the built paths and the install steps in the report. Say what is not known: installed as a plugin, agents are named `<harness-name>:<agent>`, so a skill that calls a bare agent name may not find it (the `--install-user` copy keeps bare names); a chat zip holds the skill folder only, no agents, so it runs the single-context fallback. Loading in Cowork and chat is unverified. Where there is no shell (chat, Cowork), build the same layout by hand and say so.
 
 ### Step 7: Operate, maintain and improve
 
@@ -213,6 +214,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - [ ] One orchestrator skill with data hand-off, error policy, test scenarios and a declared target surface; a single-context fallback if chat or Cowork is a target.
 - [ ] Execution mode written (per phase if mixed); no v1 artefacts.
 - [ ] `scripts/lint_harness.py` exits 0 on `project/.claude`, and every `WARN` line is fixed or explained.
+- [ ] The owner was asked the install option once; for any answer but this project only, the report names the files `scripts/package_harness.py` built and the install steps.
 - [ ] `model:` chosen per agent from the task, with the reason as a comment; no blanket top-model setting.
 - [ ] Workflow scripts: `.filter(Boolean)` present, `meta` literal, `parallel()` only for real barriers.
 - [ ] Nothing written to `.claude/commands/`.
@@ -254,4 +256,5 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 - Checking that each `references/<sub>/<path>:<line>` cite exists at the pinned commit and is in range: `references/quality-gates.md` §1-4 and `scripts/cite_check.py` (adapted from references/repository_harness (MIT); the source lines are named in §1-4)
 - Parallel writers, the ownership ladder and honest labels: `references/write-safety.md` (adapted from references/meta_harness/.agents/skills/harness/SKILL.md:133 (Apache-2.0))
 - Updating installed harness files from a new version without overwriting edits (plan against a stored baseline, stage conflicts, edit nothing; rules R1-R6): `references/safe-update.md` and `scripts/safe_update.py` (adapted from references/repository_harness/crates/harness/src/application/service.rs:516 (MIT, Hoang Nguyen), idea only)
+- Installing a built harness outside its project (Cowork plugin file, chat skill zips, a copy into `~/.claude/` that never overwrites): `scripts/package_harness.py`, Step 6 item 8
 - Borrowing from other harness repos under licence rules: `references/source-enrichment.md`
