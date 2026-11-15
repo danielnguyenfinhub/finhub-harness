@@ -162,6 +162,35 @@ A central agent manages work state and divides the work according to progress.
 
 **Execution mode v2 recommends:** Use Persistent agent collaboration (Mode B). The main agent as leader registers work with `TaskCreate`, receives workers' completion notifications, and redistributes the work with `SendMessage` and `TaskUpdate`. If the task list can be fixed in advance and the distribution procedure can be written as code, switch to Workflow orchestration (Mode A). In that case the supervisor has no judgments left to make.
 
+### 1-5a. Manager-led team: one manager, specialists, one shared board
+
+The default shape when a harness is a team and not a single agent. One manager understands the whole project; specialists each do one job; everyone works from the same board, like one company on one project.
+
+```
+[Owner] ⇄ [Manager] ─┬→ [Specialist A]  ┐
+                     ├→ [Specialist B]  ├─ one shared board (tasks, hand-off files)
+                     └→ [Existing team] ┘
+```
+
+| Rule | What it says |
+|---|---|
+| MT1 | **One manager holds the picture.** The orchestrator is the manager: it reads the project brief, writes the plan, knows who does what and what is done. It is the only one who talks to the owner. |
+| MT2 | **The manager starts alone.** It works by itself until the work clearly needs more hands (independent units, or a job that needs its own tools or skills). Then it proposes the team to the owner, with the reason, before staffing it (§6-1, SW1). |
+| MT3 | **Staff from what exists first.** For each job the manager looks at the harness teams, agents and skills already in the project (§7, Step 3 Library skills). A job an existing team covers is assigned to that team through its own orchestrator skill, with a brief; the manager does not edit that team's files and treats its result as one worker report. A new specialist is built only for a job nothing covers. |
+| MT4 | **Each specialist gets one job with its own tools and skills** (rules SW2 to SW6). The manager writes the method once, as a skill the workers share, so each brief carries only the worker's own item (§1-2a). |
+| MT5 | **One shared board.** Tasks, their state and every hand-off file live in one place all members can read (`_workspace/`, and the unit tracker for many similar items). A worker reads a teammate's output from the board; it does not rebuild it. A worker claims a task before it starts; it never lists the open tasks and then picks one, because two workers can pick the same task that way (`unit-tracker.md`, U9 to U11). |
+| MT6 | **Workers report up; the manager re-plans.** A worker finishes, or stops and says exactly what blocks it. It does not wait on the manager in the middle of a job. The manager reads every report, re-assigns what failed (never a phase marked `once`: §1-5 says what to do instead), and never fills a gap with a guess. |
+| MT7 | **Shared records belong to the manager.** A record the whole business relies on (a CRM entry, a client file, a published page) is written by the manager or by the one sending worker, after the Ask-first yes. Other workers fill only the team's own board and report up (`orchestrator-template.md`, Ask-first). |
+| MT8 | **The manager delegates the work and keeps the judgement.** It does small fixes, set-up and checks itself, hands the real jobs to specialists, and is the one who combines the results and accepts them (SW5). |
+
+Worked example: a refinance project. The manager reads the client brief and plans four jobs. A document-checklist harness already exists, so job 1 goes to that team through its orchestrator (MT3). Bank statements and payslips each get a specialist with one assigned skill (MT4); a lender comparison is the manager's own synthesis (MT8). All three write to `_workspace/`, and the payslip specialist reads the statement specialist's income table from there instead of recomputing it (MT5). The statement specialist cannot read one scanned page: it stops, reports the page, and the manager asks the owner for a clearer copy (MT6). Nothing is written to the CRM until the owner says yes to the manager's list (MT7).
+
+**Fits when:** the owner asks for a team, or the delegation gate passes and the work has more than one kind of job. For many items of the same kind, add §1-2a. For a workload that keeps changing, see §1-5 as well.
+
+**Caution:** the manager is one context; when it does the specialists' work itself it stops seeing the whole. Two levels only: manager and members (§1-6).
+
+(MT1, MT2 and MT4 to MT8 adapted from references/hive/core/framework/agents/queen/nodes/__init__.py:35-49, :78-83, :98-100, :107-109, :157-175, :188-199, :205-210 and :224-225 (Apache-2.0), holder Aden per references/hive/LICENSE:178; ideas only, fresh text. MT3's use of an existing team is this skill's own rule, built on §7.)
+
 ### 1-6. Hierarchical delegation
 
 A delegated agent in turn hands work to lower-level agents. This is the approach for breaking a complex problem into several levels.

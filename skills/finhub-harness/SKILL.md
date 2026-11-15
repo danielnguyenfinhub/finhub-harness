@@ -91,7 +91,7 @@ Decide in this order: (1) if the list, rule and loop can be coded, use A — cod
 
 #### 2-2. Team pattern
 
-Split the work by expertise, then pick from `references/team-patterns.md`: **pipeline**, **fan-out/fan-in**, **expert pool**, **producer-reviewer**, **supervisor**, **hierarchical delegation** (two levels at most; one level of Workflow nesting).
+Split the work by expertise, then pick from `references/team-patterns.md`: **pipeline**, **fan-out/fan-in**, **expert pool**, **producer-reviewer**, **supervisor**, **hierarchical delegation** (two levels at most; one level of Workflow nesting). When the harness is a team, the default shape is the **manager-led team**: one manager who understands the whole project, specialists with one job each, one shared board, and work assigned to an existing harness team before a new one is built (`references/team-patterns.md` §1-5a, rules MT1 to MT8).
 
 When correctness matters, add verification patterns: **adversarial verification** (N adversarial checkers per finding; only majority-`confirmed` passes; `refuted`/`uncertain` never count as passes), **judge panel**, **loop-until-dry**, **multi-axis search**, **omission reviewer**. For harnesses that *design before they build*, add the FinHub pattern: an **Authority List** audited by a **fresh-context judge** (`references/quality-gates.md` §1-2), which is adversarial verification applied to the design itself.
 
@@ -207,6 +207,7 @@ When the user wants a pattern from another harness (`"borrow the judge panel fro
 
 - [ ] Every reusable custom type has a file in `project/.claude/agents/`; one-offs on built-in types have none.
 - [ ] Every needed `SKILL.md` and reference exists under `project/.claude/skills/`.
+- [ ] A team harness names one manager (the orchestrator), one shared board, and for each job whether an existing team or agent took it or a new specialist was built, with the reason.
 - [ ] Every specialist has a one-sentence reason for existing, a `Covers:` line and a `tools:` allowlist; every worker report ends in a `Coverage:` note, and no worker marks its own item done.
 - [ ] Every agent has an assigned library skill or a `none found` row in the agent | skill | why table; every assigned name appears in the host's skill listing and in the agent's body, and no sending skill sits on a non-sending worker.
 - [ ] One orchestrator skill with data hand-off, error policy, test scenarios and a declared target surface; a single-context fallback if chat or Cowork is a target.
