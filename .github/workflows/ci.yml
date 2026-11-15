@@ -6,7 +6,7 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # ubuntu-latest became 26.04 on 2026-11-15 and two guard tests fail there; unpin after they are fixed
     timeout-minutes: 15  # a quadratic-regex regression would otherwise hang up to the 360 min default
     steps:
       - uses: actions/checkout@v4

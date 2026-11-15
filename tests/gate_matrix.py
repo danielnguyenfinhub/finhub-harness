@@ -452,7 +452,7 @@ ROWS: list[tuple] = [
     (
         "l03",
         "LIMIT: a symlink to a wrapper",
-        [("sub/w", "link", "/usr/bin/env"), ("bin/mysh", "link", "bash")],
+        [("sub/w", "link", "/usr/bin/ionice"), ("bin/mysh", "link", "bash")],
         ("argv", ["./w", "{B}/bin/mysh"]),
         None,
         {"limit": "a link to a wrapper is not a wrapper name: not detected"},

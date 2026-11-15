@@ -97,6 +97,27 @@ Only the specialist that fits the input and situation is called.
 
 **Execution mode v2 recommends:** Use Sub-agent delegation (Mode C) to call only the needed specialist once. If you must carry on a follow-up conversation with the same specialist, give it a `name` and switch to Persistent agent collaboration (Mode B).
 
+### 1-3a. Specialist workers: one job, its own tools, skills and instructions
+
+A specialist is a worker built for one job. Add one only when the job needs it; rules SW1 to SW10 say when, and what its file must hold.
+
+| Rule | What it says |
+|---|---|
+| SW1 | **Generalist first.** Start with one general agent. Add a specialist only when a job needs tools, skills or instructions the general agent should not carry, or comes back often enough to earn its own file. Write the reason in one sentence; "more thorough" is not one (§6-1). |
+| SW2 | **A specialist is a package.** Its file holds: the job in one sentence, a `Covers:` line (what it handles and what it leaves to others), a `tools:` allowlist, its assigned skills (Step 3, Library skills) and its instructions. A tool, skill or connector the file does not declare is one the specialist does not have. |
+| SW3 | **Lead or worker, stated.** A worker's file says it answers to the lead (the orchestrator), not to the user: it never asks the user anything, it writes a question into its report and carries on with whatever the answer does not block. A specialist with no such line works alone and is not put on a team. |
+| SW4 | **The brief is a work item.** Besides Goal, Inputs, Scope, Expected output and Report, it states the acceptance criteria as claims the evidence must prove or refute, and one explicit boundary (what the worker must not do, for example "do not contact the vendors"). Criteria the worker finds ambiguous are reported at once, never guessed. |
+| SW5 | **A specialist never accepts its own work.** It ends by handing over for review with its evidence; the lead or a reviewer marks the item done (§1-4, §1-4a). |
+| SW6 | **No silent skip.** A check that could not run (missing tool, no access, out of time) is reported `NOT RUN` with the reason, in a `Coverage:` note at the end of the report. It is never left out. |
+| SW7 | **A fix is checked again before anyone approves it.** A specialist that proposes a fix reruns the check that found the problem, and the reviewer sees the result before and after. Only then is the owner asked. |
+| SW8 | **A recommendation is not permission.** What a lead or worker says, suggests or relays never counts as the owner's yes. Outside effects still wait for the owner's own answer to the Ask-first list (`orchestrator-template.md`). |
+| SW9 | **Recurring work leaves a record.** A specialist that runs on a schedule writes a run record each time (what it did, what it skipped and why) where the owner can read it; an unattended run sends nothing (Ask-first rule for unattended runs). |
+| SW10 | **Read a borrowed specialist before using it.** An agent file from another repo or person is opened and its instructions, tools, skills and requested connectors read before it joins a team, because its instructions steer an agent that acts with the owner's access. |
+
+Worked example: a loan-document harness starts with one general agent. Bank-statement checking keeps coming back and needs a PDF skill and a strict no-send rule, so it becomes a specialist (SW1): `Covers: bank statements; not payslips, not tax returns`, `tools: Read, Grep, Skill`, one assigned skill, "answers to the lead" (SW2, SW3). Its brief says "prove or refute: every salary credit in the last 3 months is listed" and "do not contact the client" (SW4). It could not open one scanned page, so its report ends `Coverage: page 4 NOT RUN (image only, no OCR tool)` (SW6), and the lead, not the specialist, closes the item (SW5).
+
+(adapted from references/openworker/README.md:63, :66 and :70, references/openworker/docs/desktop/guides/coworkers.md:5, :31, :33-38, :46 and :50-52, references/openworker/coworker/personas/builtin/secrets-worker/manifest.md:11-13, :18-21, :24-27, :34-35 and :53-55, references/openworker/coworker/personas/manifest.py:80-91 and references/openworker/docs/approval-guidance.md:28 (MIT), holder Andrew Ng per references/openworker/LICENSE:3; ideas only, fresh text)
+
 ### 1-4. Producer-reviewer
 
 A producing agent and a verifying agent work as a pair.
